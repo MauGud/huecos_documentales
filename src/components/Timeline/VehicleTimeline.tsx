@@ -21,20 +21,42 @@ export const VehicleTimeline: React.FC<VehicleTimelineProps> = ({
   onGapClick,
   className = ''
 }) => {
+  // Calcular rango de fechas dinámico basado en los documentos
+  const calculateDateRange = () => {
+    if (documents.length === 0) {
+      return {
+        from: new Date(2020, 0, 1),
+        to: new Date(2025, 11, 31)
+      };
+    }
+    
+    const allDates = [
+      ...documents.map(doc => doc.issueDate),
+      ...gaps.map(gap => gap.expectedDateRange.from),
+      ...gaps.map(gap => gap.expectedDateRange.to)
+    ];
+    
+    const minDate = new Date(Math.min(...allDates.map(d => d.getTime())));
+    const maxDate = new Date(Math.max(...allDates.map(d => d.getTime())));
+    
+    // Agregar margen de 1 año antes y después
+    minDate.setFullYear(minDate.getFullYear() - 1);
+    maxDate.setFullYear(maxDate.getFullYear() + 1);
+    
+    return { from: minDate, to: maxDate };
+  };
+
   const [filters, setFilters] = useState<TimelineFilters>({
     documentTypes: Object.keys(DOCUMENT_TYPES) as any[],
-    dateRange: {
-      from: new Date(2015, 0, 1),
-      to: new Date(2025, 11, 31)
-    },
+    dateRange: calculateDateRange(),
     showGaps: true,
     showPresent: true,
     showMissing: true
   });
 
   const [config, setConfig] = useState<TimelineConfig>({
-    startYear: 2015,
-    endYear: 2025,
+    startYear: calculateDateRange().from.getFullYear(),
+    endYear: calculateDateRange().to.getFullYear(),
     zoomLevel: 1,
     showYearMarkers: true,
     showMonthMarkers: false
@@ -71,11 +93,14 @@ export const VehicleTimeline: React.FC<VehicleTimelineProps> = ({
     return typeMatch && dateMatch;
   });
 
-  // Calcular posiciones en el timeline
+  // Calcular posiciones en el timeline con mejor precisión cronológica
   const getPositionInTimeline = (date: Date): number => {
     const totalDays = (filters.dateRange.to.getTime() - filters.dateRange.from.getTime()) / (1000 * 60 * 60 * 24);
     const daysFromStart = (date.getTime() - filters.dateRange.from.getTime()) / (1000 * 60 * 60 * 24);
-    return (daysFromStart / totalDays) * 100;
+    
+    // Asegurar que la posición esté dentro del rango 0-100%
+    const position = Math.max(0, Math.min(100, (daysFromStart / totalDays) * 100));
+    return position;
   };
 
   // Generar marcadores de años
@@ -130,7 +155,7 @@ export const VehicleTimeline: React.FC<VehicleTimelineProps> = ({
     return acc;
   }, {} as Record<string, VehicleDocument[]>);
 
-  // Generar carriles de documentos
+  // Generar carriles de documentos optimizados para timeline
   const generateDocumentLanes = () => {
     const lanes: JSX.Element[] = [];
     const laneTypes = ['factura_origen', 'factura_endosada', 'tarjeta_circulacion', 'tenencia', 'refrendo', 'verificacion'];
@@ -139,67 +164,107 @@ export const VehicleTimeline: React.FC<VehicleTimelineProps> = ({
       const docs = documentsByType[type] || [];
       const typeGaps = filteredGaps.filter(gap => gap.type === type);
       
+      // Ordenar documentos por fecha para mejor visualización cronológica
+      const sortedDocs = docs.sort((a, b) => a.issueDate.getTime() - b.issueDate.getTime());
+      
       lanes.push(
-        <div key={type} className="relative h-20 mb-4">
+        <div key={type} className="relative h-24 mb-6">
           {/* Etiqueta del carril */}
-          <div className="absolute -left-32 top-0 h-full flex items-center">
-            <div className="text-sm font-medium text-gray-600 whitespace-nowrap">
+          <div className="absolute -left-40 top-0 h-full flex items-center w-36">
+            <div className="text-sm font-medium text-gray-700 whitespace-nowrap truncate">
               {DOCUMENT_TYPES[type as keyof typeof DOCUMENT_TYPES]?.name || type}
             </div>
           </div>
           
           {/* Línea del carril */}
-          <div className="timeline-track ml-8">
+          <div className="timeline-track ml-10 relative">
             {/* Marcadores de años en este carril */}
             {config.showYearMarkers && generateYearMarkers()}
             {config.showMonthMarkers && generateMonthMarkers()}
             
-            {/* Documentos presentes */}
-            {filters.showPresent && docs.map((doc, docIndex) => {
+            {/* Documentos presentes - Cards compactas para timeline */}
+            {filters.showPresent && sortedDocs.map((doc, docIndex) => {
               const position = getPositionInTimeline(doc.issueDate);
               return (
                 <motion.div
                   key={doc.id}
-                  className="absolute top-2"
+                  className="absolute top-1 z-10"
                   style={{ left: `${position}%` }}
-                  initial={{ opacity: 0, scale: 0.8 }}
-                  animate={{ opacity: 1, scale: 1 }}
+                  initial={{ opacity: 0, scale: 0.8, y: -10 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
                   transition={{ delay: docIndex * 0.1 }}
-                  whileHover={{ scale: 1.05 }}
+                  whileHover={{ scale: 1.1, zIndex: 20 }}
                   whileTap={{ scale: 0.95 }}
                 >
-                  <DocumentCard
-                    document={doc}
-                    variant="present"
+                  <div 
+                    className="timeline-document-card bg-green-100 border-2 border-green-500 rounded-lg p-2 shadow-md cursor-pointer hover:shadow-lg transition-all duration-200"
                     onClick={() => onDocumentClick(doc)}
-                    className="w-48"
-                  />
+                    style={{ width: '120px', minHeight: '60px' }}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                      <div className="text-xs text-green-700 font-medium">
+                        {doc.type.replace('_', ' ').toUpperCase()}
+                      </div>
+                    </div>
+                    <div className="text-xs text-gray-600 truncate">
+                      {doc.issueDate.toLocaleDateString('es-MX', { 
+                        day: '2-digit', 
+                        month: '2-digit', 
+                        year: '2-digit' 
+                      })}
+                    </div>
+                    <div className="text-xs text-gray-500 truncate">
+                      {doc.ownerName}
+                    </div>
+                  </div>
                 </motion.div>
               );
             })}
             
-            {/* Gaps (documentos faltantes) */}
+            {/* Gaps (documentos faltantes) - Barras horizontales */}
             {filters.showGaps && typeGaps.map((gap, gapIndex) => {
               const position = getPositionInTimeline(gap.expectedDateRange.from);
-              const width = getPositionInTimeline(gap.expectedDateRange.to) - position;
+              const endPosition = getPositionInTimeline(gap.expectedDateRange.to);
+              const width = Math.max(2, endPosition - position);
               
               return (
                 <motion.div
                   key={gap.id}
-                  className="absolute top-2"
+                  className="absolute top-1 z-5"
                   style={{ left: `${position}%`, width: `${width}%` }}
-                  initial={{ opacity: 0, scale: 0.8 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: (docs.length + gapIndex) * 0.1 }}
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
+                  initial={{ opacity: 0, scaleX: 0 }}
+                  animate={{ opacity: 1, scaleX: 1 }}
+                  transition={{ delay: (sortedDocs.length + gapIndex) * 0.1 }}
+                  whileHover={{ scaleY: 1.2, zIndex: 15 }}
+                  whileTap={{ scaleY: 0.9 }}
                 >
-                  <DocumentCard
-                    gap={gap}
-                    variant="missing"
+                  <div 
+                    className="timeline-gap-bar bg-red-100 border-2 border-dashed border-red-500 rounded-lg p-2 cursor-pointer hover:bg-red-200 transition-all duration-200"
                     onClick={() => onGapClick(gap)}
-                    className="w-full"
-                  />
+                    style={{ minHeight: '60px' }}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="w-2 h-2 bg-red-500 rounded-full"></div>
+                      <div className="text-xs text-red-700 font-medium">
+                        {gap.type.replace('_', ' ').toUpperCase()}
+                      </div>
+                    </div>
+                    <div className="text-xs text-gray-600">
+                      {gap.expectedDateRange.from.toLocaleDateString('es-MX', { 
+                        day: '2-digit', 
+                        month: '2-digit', 
+                        year: '2-digit' 
+                      })} - {gap.expectedDateRange.to.toLocaleDateString('es-MX', { 
+                        day: '2-digit', 
+                        month: '2-digit', 
+                        year: '2-digit' 
+                      })}
+                    </div>
+                    <div className="text-xs text-red-600 truncate">
+                      FALTANTE
+                    </div>
+                  </div>
                 </motion.div>
               );
             })}
@@ -274,24 +339,26 @@ export const VehicleTimeline: React.FC<VehicleTimelineProps> = ({
       {/* Timeline principal */}
       <div className="mt-6">
         {/* Encabezado con años */}
-        <div className="relative h-8 mb-4 ml-8">
-          {generateYearMarkers()}
+        <div className="relative h-12 mb-6 ml-10 bg-gray-50 rounded-lg p-2">
+          <div className="relative h-full">
+            {generateYearMarkers()}
+          </div>
         </div>
         
         {/* Contenedor del timeline con scroll horizontal */}
         <div 
           ref={timelineRef}
-          className="relative overflow-x-auto overflow-y-visible"
-          style={{ minHeight: '400px' }}
+          className="relative overflow-x-auto overflow-y-visible bg-white rounded-lg shadow-inner p-4"
+          style={{ minHeight: '500px' }}
         >
-          <div className="relative min-w-full" style={{ width: `${timelineWidth}px` }}>
+          <div className="relative min-w-full" style={{ width: `${Math.max(timelineWidth, 1200)}px` }}>
             {/* Conexiones entre documentos */}
             <div className="absolute inset-0 pointer-events-none">
               {generateConnections()}
             </div>
             
             {/* Carriles de documentos */}
-            <div className="space-y-4">
+            <div className="space-y-2">
               {generateDocumentLanes()}
             </div>
           </div>

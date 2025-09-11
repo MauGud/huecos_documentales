@@ -49,6 +49,14 @@
   .timeline-year-label {
     @apply absolute -top-8 left-1/2 transform -translate-x-1/2 text-sm font-semibold text-gray-600;
   }
+  
+  .timeline-document-card {
+    @apply transition-all duration-200 hover:shadow-lg;
+  }
+  
+  .timeline-gap-bar {
+    @apply transition-all duration-200 hover:shadow-md;
+  }
 }
 
 @layer utilities {

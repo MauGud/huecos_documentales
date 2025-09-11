@@ -20,8 +20,16 @@ export class DocumentGapAnalyzer {
    * - Estado emisor debe cambiar apropiadamente
    */
   detectPlateChangeGaps(documents: VehicleDocument[]): DocumentGap[] {
+    console.log('🚗 detectPlateChangeGaps: Iniciando análisis de cambios de placas');
     const gaps: DocumentGap[] = [];
+    
+    if (documents.length < 2) {
+      console.log('ℹ️ Se necesitan al menos 2 documentos para detectar cambios de placas');
+      return gaps;
+    }
+    
     const plateChanges = this.identifyPlateChanges(documents);
+    console.log('🔄 Cambios de placas detectados:', plateChanges.length);
 
     for (const change of plateChanges) {
       const { from, to, changeDate, documents: relatedDocs } = change;
@@ -79,6 +87,7 @@ export class DocumentGapAnalyzer {
       }
     }
 
+    console.log('🚗 Gaps de cambio de placas detectados:', gaps.length);
     return gaps;
   }
 
@@ -91,8 +100,16 @@ export class DocumentGapAnalyzer {
    * - Contrato de compraventa debe estar presente
    */
   detectOwnershipGaps(documents: VehicleDocument[]): DocumentGap[] {
+    console.log('👤 detectOwnershipGaps: Iniciando análisis de cambios de propietario');
     const gaps: DocumentGap[] = [];
+    
+    if (documents.length < 2) {
+      console.log('ℹ️ Se necesitan al menos 2 documentos para detectar cambios de propietario');
+      return gaps;
+    }
+    
     const ownershipChanges = this.identifyOwnershipChanges(documents);
+    console.log('🔄 Cambios de propietario detectados:', ownershipChanges.length);
 
     for (const change of ownershipChanges) {
       const { from, to, changeDate, documents: relatedDocs } = change;
@@ -170,6 +187,7 @@ export class DocumentGapAnalyzer {
       }
     }
 
+    console.log('👤 Gaps de cambio de propietario detectados:', gaps.length);
     return gaps;
   }
 
@@ -182,48 +200,53 @@ export class DocumentGapAnalyzer {
    * - Nombre en recibo debe coincidir con propietario del periodo
    */
   detectAnnualPaymentGaps(documents: VehicleDocument[]): DocumentGap[] {
+    console.log('💰 detectAnnualPaymentGaps: Iniciando análisis de pagos anuales');
     const gaps: DocumentGap[] = [];
-    const paymentYears = this.getPaymentYears(documents);
-
-    for (const year of paymentYears) {
-      const yearStart = new Date(year, 0, 1);
-      const yearEnd = new Date(year, 11, 31);
-      
-      // Obtener propietario del año
-      const yearOwner = this.getOwnerForYear(documents, year);
-      if (!yearOwner) continue;
-
-      // Verificar si el estado tiene tenencia o refrendo
-      const state = yearOwner.state;
-      const stateConfig = MEXICAN_STATES[state];
-      
-      if (!stateConfig.hasTenencia && !stateConfig.hasRefrendo) {
-        continue; // Estado que no requiere pago anual
-      }
-
-      // Buscar pago del año
-      const paymentExists = documents.some(doc => {
-        const docYear = doc.issueDate.getFullYear();
-        const isPaymentDoc = stateConfig.hasTenencia ? doc.type === 'tenencia' : doc.type === 'refrendo';
-        const isCorrectYear = docYear === year;
-        const isCorrectOwner = doc.ownerName === yearOwner.ownerName;
-        const isCorrectState = doc.state === state;
-        
-        return isPaymentDoc && isCorrectYear && isCorrectOwner && isCorrectState;
+    
+    if (documents.length === 0) {
+      console.log('❌ No hay documentos para analizar pagos');
+      return gaps;
+    }
+    
+    // Obtener información del documento más reciente
+    const latestDoc = documents.sort((a, b) => b.issueDate.getTime() - a.issueDate.getTime())[0];
+    const ownerName = latestDoc.ownerName;
+    const state = latestDoc.state;
+    const stateConfig = MEXICAN_STATES[state];
+    const startYear = latestDoc.issueDate.getFullYear();
+    const currentYear = new Date().getFullYear();
+    
+    console.log('👤 Propietario:', ownerName);
+    console.log('🏛️ Estado:', state);
+    console.log('📅 Año inicio:', startYear, 'Año actual:', currentYear);
+    
+    if (!stateConfig.hasTenencia && !stateConfig.hasRefrendo) {
+      console.log(`ℹ️ Estado ${state} no requiere pago anual`);
+      return gaps;
+    }
+    
+    const paymentType = stateConfig.hasTenencia ? 'tenencia' : 'refrendo';
+    const paymentName = stateConfig.hasTenencia ? 'Tenencia' : 'Refrendo';
+    
+    // Analizar cada año desde el documento hasta hoy
+    for (let year = startYear; year <= currentYear; year++) {
+      const hasPayment = documents.some(doc => {
+        return doc.type === paymentType && 
+               doc.issueDate.getFullYear() === year && 
+               doc.ownerName === ownerName && 
+               doc.state === state;
       });
-
-      if (!paymentExists) {
-        const paymentType = stateConfig.hasTenencia ? 'tenencia' : 'refrendo';
-        const paymentName = stateConfig.hasTenencia ? 'Tenencia' : 'Refrendo';
-        
+      
+      if (!hasPayment) {
+        console.log(`➕ Creando gap para ${paymentType} ${year}`);
         gaps.push({
-          id: `${paymentType}_${year}_${yearOwner.ownerName}`,
+          id: `${paymentType}_${year}_${ownerName}`,
           type: paymentType,
           expectedDateRange: {
-            from: yearStart,
-            to: yearEnd
+            from: new Date(year, 0, 1),
+            to: new Date(year, 11, 31)
           },
-          reason: `Falta pago de ${paymentName} ${year} para propietario "${yearOwner.ownerName}" en ${state}`,
+          reason: `Falta pago de ${paymentName} ${year} para propietario "${ownerName}" en ${state}`,
           severity: 'high',
           relatedDocuments: [],
           suggestedAction: `Pagar ${paymentName} ${year} en ${stateConfig.issuingAuthority}`,
@@ -234,6 +257,7 @@ export class DocumentGapAnalyzer {
       }
     }
 
+    console.log('💰 Gaps de pago detectados:', gaps.length);
     return gaps;
   }
 
@@ -246,41 +270,50 @@ export class DocumentGapAnalyzer {
    * - No gaps mayores a un periodo
    */
   detectVerificationGaps(documents: VehicleDocument[]): DocumentGap[] {
+    console.log('🔍 detectVerificationGaps: Iniciando análisis de verificaciones');
     const gaps: DocumentGap[] = [];
-    const verificationYears = this.getVerificationYears(documents);
-
-    for (const year of verificationYears) {
-      const yearStart = new Date(year, 0, 1);
-      const yearEnd = new Date(year, 11, 31);
-      
-      // Obtener propietario y placas del año
-      const yearOwner = this.getOwnerForYear(documents, year);
-      if (!yearOwner) continue;
-
-      const state = yearOwner.state;
-      const stateConfig = MEXICAN_STATES[state];
-      const requiredVerifications = stateConfig.verificationFrequency === 'semiannual' ? 2 : 1;
-
-      // Buscar verificaciones del año
+    
+    if (documents.length === 0) {
+      console.log('❌ No hay documentos para analizar verificaciones');
+      return gaps;
+    }
+    
+    // Obtener información del documento más reciente
+    const latestDoc = documents.sort((a, b) => b.issueDate.getTime() - a.issueDate.getTime())[0];
+    const ownerName = latestDoc.ownerName;
+    const state = latestDoc.state;
+    const stateConfig = MEXICAN_STATES[state];
+    const startYear = latestDoc.issueDate.getFullYear();
+    const currentYear = new Date().getFullYear();
+    const requiredVerifications = stateConfig.verificationFrequency === 'semiannual' ? 2 : 1;
+    
+    console.log('👤 Propietario:', ownerName);
+    console.log('🏛️ Estado:', state);
+    console.log('📅 Año inicio:', startYear, 'Año actual:', currentYear);
+    console.log('🔍 Verificaciones requeridas por año:', requiredVerifications);
+    
+    // Analizar cada año desde el documento hasta hoy
+    for (let year = startYear; year <= currentYear; year++) {
       const verifications = documents.filter(doc => 
         doc.type === 'verificacion' &&
         doc.issueDate.getFullYear() === year &&
-        doc.ownerName === yearOwner.ownerName &&
+        doc.ownerName === ownerName &&
         doc.state === state
       );
-
+      
       if (verifications.length < requiredVerifications) {
         const missing = requiredVerifications - verifications.length;
         const frequency = stateConfig.verificationFrequency === 'semiannual' ? 'semestral' : 'anual';
         
+        console.log(`➕ Creando gap para ${missing} verificación(es) ${year}`);
         gaps.push({
-          id: `verificacion_${year}_${yearOwner.ownerName}_${missing}`,
+          id: `verificacion_${year}_${ownerName}_${missing}`,
           type: 'verificacion',
           expectedDateRange: {
-            from: yearStart,
-            to: yearEnd
+            from: new Date(year, 0, 1),
+            to: new Date(year, 11, 31)
           },
-          reason: `Faltan ${missing} verificación(es) ${frequency} ${year} para placas ${yearOwner.plateNumber || 'N/A'}`,
+          reason: `Faltan ${missing} verificación(es) ${frequency} ${year} para propietario "${ownerName}"`,
           severity: 'medium',
           relatedDocuments: verifications.map(doc => doc.id),
           suggestedAction: `Realizar ${missing} verificación(es) vehicular(es) en ${stateConfig.issuingAuthority}`,
@@ -291,6 +324,7 @@ export class DocumentGapAnalyzer {
       }
     }
 
+    console.log('🔍 Gaps de verificación detectados:', gaps.length);
     return gaps;
   }
 
@@ -385,11 +419,12 @@ export class DocumentGapAnalyzer {
     };
   }
 
+
   /**
    * REGLA 6: Verificación de consistencia temporal
    * Verificar que:
    * - No hay documentos con fechas imposibles
-   * - Documentos del mismo periodo tienen mismo propietario
+   * - Documentos del mismo period tienen mismo propietario
    * - Multas corresponden al propietario del momento
    * - Tarjeta de circulación vigente durante todo el periodo
    */
@@ -428,16 +463,29 @@ export class DocumentGapAnalyzer {
    * Análisis completo de completitud de documentos
    */
   analyzeDocumentCompleteness(documents: VehicleDocument[]): AnalysisResult {
-    // Aplicar todas las reglas
+    console.log('🔍 DocumentGapAnalyzer: Iniciando análisis COMPLETO con', documents.length, 'documentos');
+    console.log('📄 Documentos recibidos:', documents.map(d => ({ type: d.type, date: d.issueDate, owner: d.ownerName })));
+    
+    // Aplicar todas las reglas (ahora arregladas para no fallar)
     const plateGaps = this.detectPlateChangeGaps(documents);
+    console.log('🚗 Plate gaps detectados:', plateGaps.length);
+    
     const ownershipGaps = this.detectOwnershipGaps(documents);
+    console.log('👤 Ownership gaps detectados:', ownershipGaps.length);
+    
     const paymentGaps = this.detectAnnualPaymentGaps(documents);
+    console.log('💰 Payment gaps detectados:', paymentGaps.length);
+    
     const verificationGaps = this.detectVerificationGaps(documents);
+    console.log('🔍 Verification gaps detectados:', verificationGaps.length);
+    
     const temporalIssues = this.checkTemporalConsistency(documents);
     const ownershipValidation = this.validateOwnershipChain(documents);
 
     // Combinar todos los gaps
     const allGaps = [...plateGaps, ...ownershipGaps, ...paymentGaps, ...verificationGaps];
+    console.log('📊 Total gaps detectados:', allGaps.length);
+    console.log('📋 Lista de gaps:', allGaps.map(gap => ({ type: gap.type, reason: gap.reason, severity: gap.severity })));
 
     // Calcular score de completitud
     const totalExpected = this.calculateExpectedDocuments(documents);
@@ -485,12 +533,37 @@ export class DocumentGapAnalyzer {
       riskLevel,
       temporalIssues,
       ownershipValidation,
-      categoryBreakdown,
+      categoryBreakdown: this.calculateCategoryBreakdown(documents, allGaps),
       priorityActions
     };
   }
 
   // Métodos auxiliares privados
+  
+  private generateBasicRecommendations(gaps: DocumentGap[]): string[] {
+    const recommendations: string[] = [];
+    
+    if (gaps.length === 0) {
+      recommendations.push('✅ Expediente completo - no se detectaron huecos documentales');
+      return recommendations;
+    }
+    
+    const paymentGaps = gaps.filter(gap => gap.type === 'tenencia' || gap.type === 'refrendo');
+    const verificationGaps = gaps.filter(gap => gap.type === 'verificacion');
+    
+    if (paymentGaps.length > 0) {
+      recommendations.push(`💰 Pagar ${paymentGaps.length} documento(s) de pago anual pendiente(s)`);
+    }
+    
+    if (verificationGaps.length > 0) {
+      recommendations.push(`🔍 Realizar ${verificationGaps.length} verificación(es) vehicular(es) pendiente(s)`);
+    }
+    
+    recommendations.push('📋 Revisar la pestaña "Lista" para ver todos los documentos faltantes');
+    recommendations.push('📅 Consultar la línea del tiempo para entender las fechas requeridas');
+    
+    return recommendations;
+  }
 
   private identifyPlateChanges(documents: VehicleDocument[]): any[] {
     const changes: any[] = [];
@@ -540,14 +613,28 @@ export class DocumentGapAnalyzer {
 
   private getPaymentYears(documents: VehicleDocument[]): number[] {
     const years = new Set<number>();
-    const startYear = Math.min(...documents.map(doc => doc.issueDate.getFullYear()));
-    const currentYear = new Date().getFullYear();
-
-    for (let year = startYear; year <= currentYear; year++) {
-      years.add(year);
+    
+    if (documents.length === 0) {
+      // Si no hay documentos, analizar últimos 5 años
+      const currentYear = new Date().getFullYear();
+      for (let year = currentYear - 4; year <= currentYear; year++) {
+        years.add(year);
+      }
+    } else {
+      // Analizar desde el documento más antiguo hasta el año actual
+      const startYear = Math.min(...documents.map(doc => doc.issueDate.getFullYear()));
+      const currentYear = new Date().getFullYear();
+      
+      // Asegurar que analizamos al menos 3 años hacia atrás y 2 hacia adelante
+      const minYear = Math.min(startYear, currentYear - 2);
+      const maxYear = Math.max(currentYear, startYear + 2);
+      
+      for (let year = minYear; year <= maxYear; year++) {
+        years.add(year);
+      }
     }
 
-    return Array.from(years);
+    return Array.from(years).sort((a, b) => a - b);
   }
 
   private getVerificationYears(documents: VehicleDocument[]): number[] {
@@ -555,16 +642,26 @@ export class DocumentGapAnalyzer {
   }
 
   private getOwnerForYear(documents: VehicleDocument[], year: number): { ownerName: string; state: MexicanState; plateNumber?: string } | null {
+    if (documents.length === 0) return null;
+    
+    // Estrategia mejorada: usar el propietario del documento más reciente disponible
+    // Si hay documentos del año específico, usarlos; si no, usar el más reciente disponible
     const yearDocs = documents.filter(doc => doc.issueDate.getFullYear() === year);
-    if (yearDocs.length === 0) return null;
-
-    // Buscar el propietario más reciente del año
-    const latestDoc = yearDocs.sort((a, b) => b.issueDate.getTime() - a.issueDate.getTime())[0];
+    
+    let targetDoc: VehicleDocument;
+    
+    if (yearDocs.length > 0) {
+      // Usar el documento más reciente del año específico
+      targetDoc = yearDocs.sort((a, b) => b.issueDate.getTime() - a.issueDate.getTime())[0];
+    } else {
+      // Usar el documento más reciente disponible (para años sin documentos)
+      targetDoc = documents.sort((a, b) => b.issueDate.getTime() - a.issueDate.getTime())[0];
+    }
     
     return {
-      ownerName: latestDoc.ownerName,
-      state: latestDoc.state,
-      plateNumber: latestDoc.plateNumber
+      ownerName: targetDoc.ownerName,
+      state: targetDoc.state,
+      plateNumber: targetDoc.plateNumber
     };
   }
 
