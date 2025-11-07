@@ -12,30 +12,47 @@ app.use(express.json());
 // API routes - deben ir ANTES de static files
 app.use('/api', routes);
 
-// Servir archivos estáticos (CSS, JS, imágenes, etc.)
-app.use(express.static(path.join(__dirname, '../public'), {
-  // Asegurar que los archivos estáticos se sirvan correctamente
-  maxAge: '1d',
-  etag: true
-}));
+// ═══════════════════════════════════════════════════════════════
+// RUTAS EXPLÍCITAS PARA ARCHIVOS CRÍTICOS (PRIORIDAD MÁXIMA)
+// ═══════════════════════════════════════════════════════════════
+// Estas rutas deben ir ANTES de express.static para garantizar
+// que se sirvan correctamente en producción (Vercel/Heroku/etc)
 
-// Rutas explícitas para archivos críticos (asegurar que se sirvan en producción)
 app.get('/styles.css', (req, res) => {
-  res.setHeader('Content-Type', 'text/css');
-  res.setHeader('Cache-Control', 'public, max-age=31536000');
-  res.sendFile(path.join(__dirname, '..', 'public', 'styles.css'));
+  const cssPath = path.join(__dirname, '..', 'public', 'styles.css');
+  res.setHeader('Content-Type', 'text/css; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  res.sendFile(cssPath, (err) => {
+    if (err) {
+      console.error('Error sirviendo styles.css:', err);
+      res.status(404).send('/* CSS file not found */');
+    }
+  });
 });
 
 app.get('/app_new.js', (req, res) => {
-  res.setHeader('Content-Type', 'application/javascript');
-  res.setHeader('Cache-Control', 'public, max-age=31536000');
-  res.sendFile(path.join(__dirname, '..', 'public', 'app_new.js'));
+  const jsPath = path.join(__dirname, '..', 'public', 'app_new.js');
+  res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  res.sendFile(jsPath, (err) => {
+    if (err) {
+      console.error('Error sirviendo app_new.js:', err);
+      res.status(404).send('// JS file not found');
+    }
+  });
 });
 
 // Servir index.html en la ruta raíz
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
+
+// Servir archivos estáticos (para otros archivos como imágenes, etc.)
+app.use(express.static(path.join(__dirname, '../public'), {
+  maxAge: '1d',
+  etag: true,
+  index: false // No servir index.html automáticamente (ya lo hacemos arriba)
+}));
 
 // Catch-all route para SPA - debe ir al final, después de todas las rutas
 // IMPORTANTE: Solo captura rutas que NO sean archivos estáticos ni API
