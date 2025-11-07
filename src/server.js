@@ -12,8 +12,12 @@ app.use(express.json());
 // API routes - deben ir ANTES de static files
 app.use('/api', routes);
 
-// Servir archivos estáticos
-app.use(express.static(path.join(__dirname, '../public')));
+// Servir archivos estáticos (CSS, JS, imágenes, etc.)
+app.use(express.static(path.join(__dirname, '../public'), {
+  // Asegurar que los archivos estáticos se sirvan correctamente
+  maxAge: '1d',
+  etag: true
+}));
 
 // Servir index.html en la ruta raíz
 app.get('/', (req, res) => {
@@ -21,18 +25,28 @@ app.get('/', (req, res) => {
 });
 
 // Catch-all route para SPA - debe ir al final, después de todas las rutas
-// Esto maneja rutas del frontend como /auth, /search, etc.
-app.get('*', (req, res) => {
-  // Solo servir index.html si no es una ruta de API
-  if (!req.path.startsWith('/api')) {
-    res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
-  } else {
-    res.status(404).json({
+// IMPORTANTE: Solo captura rutas que NO sean archivos estáticos ni API
+app.get('*', (req, res, next) => {
+  // Ignorar si es una ruta de API
+  if (req.path.startsWith('/api')) {
+    return res.status(404).json({
       success: false,
       error: 'NOT_FOUND',
       message: 'Endpoint no encontrado'
     });
   }
+  
+  // Ignorar si es un archivo estático (debe tener extensión)
+  const staticExtensions = ['.js', '.css', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.woff', '.woff2', '.ttf', '.eot', '.json', '.xml'];
+  const hasExtension = staticExtensions.some(ext => req.path.toLowerCase().endsWith(ext));
+  
+  if (hasExtension) {
+    // Si es un archivo estático que no se encontró, devolver 404
+    return res.status(404).send('File not found');
+  }
+  
+  // Para todas las demás rutas (SPA routes), servir index.html
+  res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
 
 // Error handler - debe ir después de todas las rutas
