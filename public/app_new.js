@@ -2,6 +2,8 @@
 // ANALIZADOR DE SECUENCIA DE PROPIEDAD VEHICULAR - FRONTEND
 // ============================================================================
 
+// Detectar entorno y configurar URL de API
+// En producción usa rutas relativas, en desarrollo local usa localhost:3001
 const API_BASE_URL = window.location.hostname === 'localhost' 
   ? 'http://localhost:3001' 
   : window.location.origin;

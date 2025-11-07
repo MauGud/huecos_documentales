@@ -8,15 +8,34 @@ const PORT = process.env.PORT || 3001;
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, '../public')));
 
+// API routes - deben ir ANTES de static files
 app.use('/api', routes);
+
+// Servir archivos estáticos
+app.use(express.static(path.join(__dirname, '../public')));
 
 // Servir index.html en la ruta raíz
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
 
+// Catch-all route para SPA - debe ir al final, después de todas las rutas
+// Esto maneja rutas del frontend como /auth, /search, etc.
+app.get('*', (req, res) => {
+  // Solo servir index.html si no es una ruta de API
+  if (!req.path.startsWith('/api')) {
+    res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
+  } else {
+    res.status(404).json({
+      success: false,
+      error: 'NOT_FOUND',
+      message: 'Endpoint no encontrado'
+    });
+  }
+});
+
+// Error handler - debe ir después de todas las rutas
 app.use((err, req, res, next) => {
   console.error(err.stack);
   res.status(500).json({
@@ -31,8 +50,9 @@ module.exports = app;
 
 // Para desarrollo local - iniciar servidor
 if (require.main === module) {
-  app.listen(PORT, () => {
-    console.log(`🚀 Servidor corriendo en http://localhost:${PORT}`);
+  const HOST = process.env.HOST || '0.0.0.0';
+  app.listen(PORT, HOST, () => {
+    console.log(`🚀 Servidor corriendo en http://${HOST}:${PORT}`);
     console.log(`📊 Frontend disponible en http://localhost:${PORT}`);
     console.log(`🔗 API Nexcar: https://nexcar-api-770231222dff.herokuapp.com`);
   });
