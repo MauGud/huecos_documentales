@@ -19,6 +19,25 @@ app.use(express.static(path.join(__dirname, '../public'), {
   etag: true
 }));
 
+// Rutas explícitas para archivos críticos (asegurar que se sirvan en producción)
+app.get('/styles.css', (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'public', 'styles.css'), {
+    headers: {
+      'Content-Type': 'text/css',
+      'Cache-Control': 'public, max-age=31536000'
+    }
+  });
+});
+
+app.get('/app_new.js', (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'public', 'app_new.js'), {
+    headers: {
+      'Content-Type': 'application/javascript',
+      'Cache-Control': 'public, max-age=31536000'
+    }
+  });
+});
+
 // Servir index.html en la ruta raíz
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
