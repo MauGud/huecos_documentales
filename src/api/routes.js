@@ -188,67 +188,59 @@ router.post('/fetch-expediente', async (req, res) => {
  * PASO 3: Analizar según el tipo de datos cargados
  */
 router.post('/analyze-sequence', async (req, res) => {
+  console.log('╔════════════════════════════════════════╗');
+  console.log('║  POST /api/analyze-sequence INICIO    ║');
+  console.log('╚════════════════════════════════════════╝');
+
   try {
-    // Verificar si hay documento específico cargado
-    if (currentDocument) {
-      if (currentDocument.document_type !== 'invoice') {
-        return res.status(422).json({
-          success: false,
-          error: `Este documento es de tipo "${currentDocument.document_type}". Solo se pueden analizar facturas (invoice).`
-        });
-      }
+    const { expedienteData } = req.body;
 
-      console.log('🔍 Analizando documento específico...');
-      
-      // Crear estructura mínima para el análisis
-      const mockExpediente = {
-        active_vehicle: true,
-        created_at: currentDocument.created_at,
-        files: [currentDocument]
-      };
-
-      const analysisResult = analyzer.analyzeOwnershipSequence(mockExpediente);
-
-      if (!analysisResult.success) {
-        return res.status(422).json(analysisResult);
-      }
-
-      console.log(`✅ Análisis de documento específico completado`);
-
-      res.json({
-        ...analysisResult,
-        analysisType: 'documento_individual'
+    // Validación de entrada
+    if (!expedienteData) {
+      console.error('❌ ERROR: No se recibió expedienteData');
+      return res.status(400).json({ 
+        error: 'Se requiere expedienteData en el body' 
       });
     }
-    // Verificar si hay expediente completo cargado
-    else if (currentExpediente) {
-      console.log('🔍 Analizando expediente completo...');
-      const analysisResult = analyzer.analyzeOwnershipSequence(currentExpediente);
 
-      if (!analysisResult.success) {
-        return res.status(422).json(analysisResult);
-      }
-
-      console.log(`✅ Análisis de expediente completo completado: ${analysisResult.totalInvoices} facturas, ${analysisResult.sequenceAnalysis.totalGaps} huecos`);
-
-      res.json({
-        ...analysisResult,
-        analysisType: 'expediente_completo'
+    if (!expedienteData.files || !Array.isArray(expedienteData.files)) {
+      console.error('❌ ERROR: expedienteData.files no es un array');
+      return res.status(400).json({ 
+        error: 'expedienteData.files debe ser un array' 
       });
     }
-    // No hay datos cargados
-    else {
-      return res.status(400).json({
-        success: false,
-        error: 'No hay datos cargados. Primero consulta un VIN o VIN+FILE_ID.'
-      });
-    }
+
+    console.log('✓ Datos válidos recibidos');
+    console.log('✓ Total de archivos:', expedienteData.files.length);
+
+    // Crear instancia del analizador
+    const analyzer = new SequenceAnalyzer();
+    console.log('✓ SequenceAnalyzer creado');
+
+    // Ejecutar análisis
+    console.log('→ Iniciando analyzeOwnershipSequence...');
+    const analysis = analyzer.analyzeOwnershipSequence(expedienteData);
+    console.log('✓ analyzeOwnershipSequence completado');
+
+    console.log('╔════════════════════════════════════════╗');
+    console.log('║  POST /api/analyze-sequence SUCCESS   ║');
+    console.log('╚════════════════════════════════════════╝');
+
+    res.json(analysis);
 
   } catch (error) {
-    console.error('❌ Error:', error.message);
-    res.status(500).json({
-      success: false,
-      error: error.message
+    console.error('╔════════════════════════════════════════╗');
+    console.error('║  POST /api/analyze-sequence ERROR     ║');
+    console.error('╚════════════════════════════════════════╝');
+    console.error('❌ Error tipo:', error.name);
+    console.error('❌ Error mensaje:', error.message);
+    console.error('❌ Error stack completo:');
+    console.error(error.stack);
+
+    res.status(422).json({ 
+      error: error.message,
+      stack: error.stack,
+      name: error.name
     });
   }
 });

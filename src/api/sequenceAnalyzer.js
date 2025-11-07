@@ -83,6 +83,33 @@ class SequenceAnalyzer {
       // Si falla el análisis avanzado, continuar con respuesta básica
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // ANÁLISIS AVANZADO - FASE 1: VALIDACIÓN DE INTEGRIDAD
+    // ═══════════════════════════════════════════════════════════════
+    // Validación adicional con protección completa
+    try {
+      console.log('→ Ejecutando análisis de integridad...');
+      
+      if (sortedDocs && Array.isArray(sortedDocs) && sortedDocs.length > 0) {
+        if (typeof this.validateDocumentIntegrity === 'function') {
+          // Si integrityAnalysis no se calculó antes, calcularlo ahora
+          if (!integrityAnalysis) {
+            integrityAnalysis = this.validateDocumentIntegrity(sortedDocs, originDocument);
+          }
+          console.log('✓ Análisis de integridad completado');
+        } else {
+          console.warn('⚠ validateDocumentIntegrity no está definido');
+        }
+      }
+      
+    } catch (error) {
+      console.error('❌ Error en análisis de integridad:', error.message);
+      // No sobrescribir integrityAnalysis si ya existe
+      if (!integrityAnalysis) {
+        integrityAnalysis = null;
+      }
+    }
+
     // ========== RETURN CON TODA LA INFORMACIÓN ==========
     const response = {
       // MANTENER ESTRUCTURA EXISTENTE (NO MODIFICAR)
@@ -118,9 +145,10 @@ class SequenceAnalyzer {
       }
     };
 
-    // AGREGAR NUEVAS SECCIONES (solo si se calcularon)
+    // Agregar análisis avanzado solo si existe
     if (integrityAnalysis) {
       response.integrityAnalysis = integrityAnalysis;
+      console.log('✓ integrityAnalysis agregado al response');
     }
     if (patternDetection) {
       response.patternDetection = patternDetection;
@@ -132,6 +160,7 @@ class SequenceAnalyzer {
       response.duplicateDetection = duplicateDetection;
     }
 
+    console.log('✓ analyzeOwnershipSequence completado exitosamente');
     return response;
   }
 

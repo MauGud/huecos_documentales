@@ -2,7 +2,13 @@
 // ANALIZADOR DE SECUENCIA DE PROPIEDAD VEHICULAR - FRONTEND
 // ============================================================================
 
-const API_URL = 'http://localhost:3000/api';
+const API_BASE_URL = window.location.hostname === 'localhost' 
+  ? 'http://localhost:3001' 
+  : window.location.origin;
+const API_URL = `${API_BASE_URL}/api`;
+
+// Variable global para guardar el expediente cargado
+let currentExpediente = null;
 
 // ============================================================================
 // FUNCIONES DE UTILIDAD
@@ -163,6 +169,33 @@ async function fetchExpediente() {
         if (data.success) {
             showSuccess('Expediente obtenido exitosamente');
             
+            // ⚠️ CRÍTICO: Guardar el expediente completo en variable global
+            // Necesitamos construir el objeto expedienteData con la estructura que espera el backend
+            if (data.raw_expediente) {
+                currentExpediente = data.raw_expediente;
+                console.log('✓ Expediente guardado en currentExpediente');
+                console.log('✓ Tipo:', typeof currentExpediente);
+                console.log('✓ Tiene files:', currentExpediente.files ? 'Sí' : 'No');
+                if (currentExpediente.files) {
+                    console.log('✓ Total files:', currentExpediente.files.length);
+                }
+            } else {
+                console.warn('⚠ No se recibió raw_expediente, intentando construir desde data');
+                // Construir expediente desde la respuesta
+                if (data.data && data.data.vehicle_id) {
+                    currentExpediente = {
+                        active_vehicle: data.data.active_vehicle || true,
+                        created_at: data.data.created_at || new Date().toISOString(),
+                        files: [
+                            ...(data.data.invoices || []),
+                            ...(data.data.reinvoices || []),
+                            ...(data.data.other_documents || [])
+                        ]
+                    };
+                    console.log('✓ Expediente construido desde data');
+                }
+            }
+            
             if (data.searchType === 'expediente_completo') {
                 displayExpedienteCompleto(data);
             } else if (data.searchType === 'documento_especifico') {
@@ -185,26 +218,87 @@ async function fetchExpediente() {
 // ============================================================================
 
 async function analyzeSequence() {
-    showLoading('Analizando secuencia de propiedad...');
-    hideError();
-    document.getElementById('analysisResults').style.display = 'none';
+    console.log('═══════════════════════════════════════');
+    console.log('analyzeSequence INICIANDO');
+    console.log('═══════════════════════════════════════');
 
     try {
+        // Validar que tengamos expediente cargado
+        if (!currentExpediente) {
+            console.error('❌ ERROR: currentExpediente es null');
+            showError('Error: Primero debes cargar un expediente');
+            return;
+        }
+        console.log('✓ currentExpediente existe');
+        console.log('✓ Tipo:', typeof currentExpediente);
+        console.log('✓ Tiene files:', currentExpediente.files ? 'Sí' : 'No');
+
+        if (currentExpediente.files) {
+            console.log('✓ Total files:', currentExpediente.files.length);
+        }
+
+        // Mostrar loading
+        showLoading('Analizando secuencia de propiedad...');
+        hideError();
+        document.getElementById('analysisResults').style.display = 'none';
+
+        console.log('→ Enviando petición a /api/analyze-sequence...');
+        const requestBody = {
+            expedienteData: currentExpediente
+        };
+        console.log('→ Body que se enviará:', JSON.stringify(requestBody, null, 2));
+
+        // Enviar petición
         const response = await fetch(`${API_URL}/analyze-sequence`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(requestBody)
         });
 
-        const data = await response.json();
+        console.log('✓ Respuesta recibida');
+        console.log('✓ Status:', response.status);
+        console.log('✓ Status Text:', response.statusText);
 
-        if (data.success) {
-            showSuccess('Análisis completado exitosamente');
-            displayAnalysisResults(data);
-        } else {
-            showError(data.message || 'Error en el análisis');
+        if (!response.ok) {
+            const errorData = await response.json();
+            console.error('❌ Error del servidor:', errorData);
+            throw new Error(errorData.error || `Error ${response.status}`);
         }
+
+        const analysis = await response.json();
+        console.log('✓ Análisis recibido:', analysis);
+
+        showSuccess('Análisis completado exitosamente');
+        displayAnalysisResults(analysis);
+
+        console.log('═══════════════════════════════════════');
+        console.log('analyzeSequence COMPLETADO');
+        console.log('═══════════════════════════════════════');
     } catch (error) {
+        console.error('═══════════════════════════════════════');
+        console.error('❌ ERROR en analyzeSequence');
+        console.error('═══════════════════════════════════════');
+        console.error('Error:', error);
+        console.error('Message:', error.message);
+        console.error('Stack:', error.stack);
+
         showError('Error de conexión: ' + error.message);
+
+        const resultsDiv = document.getElementById('analysisResults');
+        if (resultsDiv) {
+            resultsDiv.innerHTML = `
+                <div class="error-message">
+                    <h3>❌ Error al analizar</h3>
+                    <p>${error.message}</p>
+                    <p style="font-size: 12px; color: #666;">
+                        Revisa la consola del navegador para más detalles
+                    </p>
+                </div>
+            `;
+            resultsDiv.style.display = 'block';
+        }
     } finally {
         hideLoading();
     }

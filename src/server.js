@@ -4,13 +4,18 @@ const path = require('path');
 const routes = require('./api/routes');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
 
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../public')));
 
 app.use('/api', routes);
+
+// Servir index.html en la ruta raíz
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
+});
 
 app.use((err, req, res, next) => {
   console.error(err.stack);
@@ -21,8 +26,14 @@ app.use((err, req, res, next) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Servidor corriendo en http://localhost:${PORT}`);
-  console.log(`📊 Frontend disponible en http://localhost:${PORT}`);
-  console.log(`🔗 API Nexcar: https://nexcar-api-770231222dff.herokuapp.com`);
-});
+// Para Vercel (serverless) - exportar la app
+module.exports = app;
+
+// Para desarrollo local - iniciar servidor
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`🚀 Servidor corriendo en http://localhost:${PORT}`);
+    console.log(`📊 Frontend disponible en http://localhost:${PORT}`);
+    console.log(`🔗 API Nexcar: https://nexcar-api-770231222dff.herokuapp.com`);
+  });
+}
