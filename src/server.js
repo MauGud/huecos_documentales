@@ -21,21 +21,15 @@ app.use(express.static(path.join(__dirname, '../public'), {
 
 // Rutas explícitas para archivos críticos (asegurar que se sirvan en producción)
 app.get('/styles.css', (req, res) => {
-  res.sendFile(path.join(__dirname, '..', 'public', 'styles.css'), {
-    headers: {
-      'Content-Type': 'text/css',
-      'Cache-Control': 'public, max-age=31536000'
-    }
-  });
+  res.setHeader('Content-Type', 'text/css');
+  res.setHeader('Cache-Control', 'public, max-age=31536000');
+  res.sendFile(path.join(__dirname, '..', 'public', 'styles.css'));
 });
 
 app.get('/app_new.js', (req, res) => {
-  res.sendFile(path.join(__dirname, '..', 'public', 'app_new.js'), {
-    headers: {
-      'Content-Type': 'application/javascript',
-      'Cache-Control': 'public, max-age=31536000'
-    }
-  });
+  res.setHeader('Content-Type', 'application/javascript');
+  res.setHeader('Cache-Control', 'public, max-age=31536000');
+  res.sendFile(path.join(__dirname, '..', 'public', 'app_new.js'));
 });
 
 // Servir index.html en la ruta raíz
