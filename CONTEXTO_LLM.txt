@@ -1,0 +1,579 @@
+CONTEXTO COMPLETO DEL PROYECTO - ANALIZADOR DE SECUENCIA DE PROPIEDAD VEHICULAR
+
+═══════════════════════════════════════════════════════════════════════════════
+ALCANCE Y OBJETIVO DEL PROYECTO
+═══════════════════════════════════════════════════════════════════════════════
+
+Este es un sistema Node.js/Express que analiza la cadena de propiedad vehicular mediante documentos fiscales (facturas, refacturas, endosos) obtenidos de la API Nexcar. El objetivo principal es detectar huecos, retornos válidos y anomalías en la secuencia de transferencias de propiedad desde el origen (vehículo nuevo) hasta el propietario actual.
+
+El sistema procesa tres tipos de documentos fiscales:
+- invoice: Factura original de vehículo nuevo (usado_nuevo: "NUEVO")
+- reinvoice: Refactura de transferencias posteriores (usado_nuevo: "USADO" por defecto)
+- endorsement: Endoso legal de transferencia de derechos
+
+La lógica crítica está en src/api/sequenceAnalyzer.js, específicamente en el método analyzeOwnershipSequence() que construye la cadena de propiedad validando que el RFC receptor de un documento sea el RFC emisor del siguiente documento en la secuencia.
+
+═══════════════════════════════════════════════════════════════════════════════
+ARQUITECTURA Y ESTRUCTURA
+═══════════════════════════════════════════════════════════════════════════════
+
+Estructura de archivos:
+- src/server.js: Servidor Express en puerto 3000, sirve archivos estáticos de /public y rutas /api
+- src/api/routes.js: Endpoints REST (POST /api/auth, POST /api/fetch-expediente, POST /api/analyze-sequence)
+- src/api/nexcarClient.js: Cliente HTTP con Axios para API Nexcar (autenticación JWT, obtención de expedientes)
+- src/api/sequenceAnalyzer.js: ⭐ MOTOR PRINCIPAL - Lógica completa de análisis de secuencia
+- public/index.html: Interfaz web con formularios de autenticación, búsqueda y visualización
+- public/app_new.js: Lógica frontend con Fetch API para comunicación con backend
+- public/styles.css: Estilos CSS modernos con diseño morado/blanco
+
+Stack: Node.js + Express (backend), JavaScript vanilla (frontend), Axios (HTTP client), CORS habilitado.
+
+API Externa: Nexcar API en https://nexcar-api-770231222dff.herokuapp.com
+- POST /auth/token: Autenticación con email/password, retorna JWT token
+- GET /expediente/{vehicleId}: Obtiene expediente completo con todos los archivos y datos OCR
+
+Credenciales por defecto hardcodeadas en routes.js: facturacion@nexcar.mx / M4u2025!!
+
+═══════════════════════════════════════════════════════════════════════════════
+FLUJO DE TRABAJO COMPLETO
+═══════════════════════════════════════════════════════════════════════════════
+
+PASO 1 - Autenticación:
+Usuario ingresa email/password → Frontend llama POST /api/auth → NexcarClient.authenticate() → API Nexcar retorna JWT → Token almacenado en memoria (nexcarClient.accessToken y nexcarClient.tokenExpiry). El token es válido si faltan más de 5 minutos para expirar (margen de seguridad).
+
+PASO 2 - Obtención de Expediente:
+Usuario ingresa URL de Nexcar (ej: https://app.nexcar.mx/workspace-analysis/{vehicle_id}/#!) o Vehicle ID directo (UUID) → Frontend llama POST /api/fetch-expediente → Sistema extrae Vehicle ID de URL usando regex /workspace-analysis\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/ → Si token inválido, autentica automáticamente → NexcarClient.getExpediente(vehicleId) → API Nexcar retorna expediente completo → Expediente almacenado en memoria (currentExpediente en routes.js) → Respuesta estructurada con invoices, reinvoices, endorsements separados.
+
+PASO 3 - Análisis de Secuencia (LÓGICA PRINCIPAL):
+Usuario hace clic en "Analizar Secuencia" → Frontend llama POST /api/analyze-sequence → SequenceAnalyzer.analyzeOwnershipSequence(expedienteData) ejecuta el algoritmo completo → Retorna cadena de propiedad, huecos detectados, retornos válidos, documentos huérfanos.
+
+═══════════════════════════════════════════════════════════════════════════════
+ESTRUCTURA DE DATOS DE ENTRADA (EXPEDIENTE NEXCAR)
+═══════════════════════════════════════════════════════════════════════════════
+
+El expediente de Nexcar tiene esta estructura JSON:
+
+{
+  active_vehicle: true/false,
+  created_at: "2025-09-26T...",
+  files: [
+    {
+      file_id: "uuid-string",
+      document_type: "invoice" | "reinvoice" | "endorsement" | "other",
+      created_at: "2025-09-26T...",
+      url: "https://...",
+      ocr: {
+        // Para INVOICE (factura):
+        fecha_factura: "25/06/2020" o fecha_hora_emision,
+        numero_factura: "12345" o folio_fiscal,
+        rfc_emisor: "COA030402N59",
+        nombre_emisor: "Car One Americana",
+        rfc_receptor: "LFC1106205B4",
+        nombre_receptor: "Lumo Financiera Del Centro",
+        total: "450000.00",
+        usado_nuevo: "NUEVO" | "USADO",
+        vin: "3GCPY9EH8LG352317" o niv_vin_numero_serie,
+        marca_vehiculo: "CHEVROLET",
+        modelo_vehiculo: "SILVERADO DOBLE",
+        ano_vehiculo: "2020" o vehiculo_modelo_ano,
+        
+        // Para REINVOICE (refactura):
+        fecha_refactura: "15/08/2021" o fecha_factura o fecha_hora_emision,
+        numero_refactura: "67890" o numero_factura o folio_fiscal,
+        // Mismos campos rfc_emisor, rfc_receptor, etc.
+        // usado_nuevo puede ser "USADO" o null (por defecto se asume "USADO"),
+        
+        // Para ENDORSEMENT (endoso):
+        fecha_endoso: "10/09/2021" o fecha_hora_endoso,
+        numero_endoso: "END-001" o folio_endoso,
+        rfc_endosante: "RFC-A",  // Equivale a emisor
+        nombre_endosante: "Nombre A",
+        rfc_endosatario: "RFC-B", // Equivale a receptor
+        nombre_endosatario: "Nombre B",
+        // NO tiene total ni usado_nuevo
+      }
+    }
+  ]
+}
+
+═══════════════════════════════════════════════════════════════════════════════
+ALGORITMO DE ANÁLISIS DE SECUENCIA (sequenceAnalyzer.js) - LÓGICA DETALLADA
+═══════════════════════════════════════════════════════════════════════════════
+
+El método analyzeOwnershipSequence(expedienteData) ejecuta estos pasos:
+
+PASO 1 - FILTRADO DE DOCUMENTOS RELEVANTES:
+Filtra files[] para obtener solo documentos con document_type === 'invoice' || 'reinvoice' || 'endorsement' Y que tengan ocr válido (objeto no null). Ignora documentos sin OCR o de otros tipos.
+
+PASO 2 - EXTRACCIÓN Y VALIDACIÓN DE VIN:
+Extrae VIN de referencia buscando en todos los archivos del expediente: ocr.vin o ocr.niv_vin_numero_serie. Luego valida que todos los documentos tengan el mismo VIN. Si hay VINs diferentes, retorna error y detiene el análisis.
+
+PASO 3 - NORMALIZACIÓN DE DOCUMENTOS:
+Cada tipo de documento tiene campos OCR diferentes. Se normalizan a una estructura común usando normalizeDocument(doc):
+
+Para INVOICE:
+{
+  fileId: doc.file_id,
+  documentType: 'invoice',
+  fecha: ocr.fecha_factura || ocr.fecha_hora_emision,
+  numeroDocumento: ocr.numero_factura || ocr.folio_fiscal,
+  emisorRFC: ocr.rfc_emisor,
+  emisorNombre: ocr.nombre_emisor,
+  receptorRFC: ocr.rfc_receptor,
+  receptorNombre: ocr.nombre_receptor,
+  total: ocr.total,
+  usadoNuevo: ocr.usado_nuevo, // "NUEVO" o "USADO"
+  vin: ocr.vin || ocr.niv_vin_numero_serie,
+  vehiculo: { marca: ocr.marca_vehiculo, modelo: ocr.modelo_vehiculo, ano: ocr.ano_vehiculo || ocr.vehiculo_modelo_ano }
+}
+
+Para REINVOICE:
+Similar pero con campos: fecha_refactura || fecha_factura || fecha_hora_emision, numero_refactura || numero_factura || folio_fiscal. usadoNuevo por defecto es 'USADO' si no está presente.
+
+Para ENDORSEMENT:
+{
+  fileId: doc.file_id,
+  documentType: 'endorsement',
+  fecha: ocr.fecha_endoso || ocr.fecha_hora_endoso,
+  numeroDocumento: ocr.numero_endoso || ocr.folio_endoso,
+  emisorRFC: ocr.rfc_endosante,  // Mapeo especial
+  emisorNombre: ocr.nombre_endosante,
+  receptorRFC: ocr.rfc_endosatario, // Mapeo especial
+  receptorNombre: ocr.nombre_endosatario,
+  total: null, // Endosos no tienen monto
+  usadoNuevo: null, // Endosos no tienen este campo
+  vin: ocr.vin || ocr.niv_vin_numero_serie,
+  vehiculo: { marca, modelo, ano }
+}
+
+PASO 4 - IDENTIFICACIÓN DEL DOCUMENTO DE ORIGEN:
+Busca el primer documento normalizado donde usadoNuevo === 'NUEVO' (case insensitive). Este es el documento de origen que representa la primera venta: Concesionaria → Primer Propietario. Si no se encuentra, retorna error. Este documento será la posición 1 en la cadena.
+
+PASO 5 - ORDENAMIENTO POR FECHA:
+Ordena todos los documentos normalizados por fecha ascendente (más antiguo primero). parseDate() soporta formatos DD/MM/YYYY, YYYY-MM-DD, y cualquier formato parseable por new Date(). Documentos sin fecha van al final.
+
+PASO 6 - CONSTRUCCIÓN DE CADENA DE PROPIEDAD (LÓGICA CRÍTICA):
+Este es el corazón del algoritmo en buildOwnershipChainAdvanced(documents, originDocument):
+
+Inicialización:
+- chain = [] (array de elementos de la cadena)
+- rfcHistory = [] (historial de RFCs que han aparecido)
+- processedDocs = new Set() (documentos ya procesados)
+- currentReceptorRFC = originDocument.receptorRFC (RFC del propietario actual)
+- position = 2 (el origen es posición 1)
+
+Agregar documento de origen:
+chain.push({
+  position: 1,
+  state: 'OK',
+  stateLabel: '✓ Origen',
+  type: originDocument.documentType,
+  ...extractChainData(originDocument) // Incluye fileId, fecha, rfcEmisor, rfcReceptor, etc.
+})
+rfcHistory.push(originDocument.emisorRFC, originDocument.receptorRFC)
+processedDocs.add(originDocument.fileId)
+
+Iterar sobre documentos ordenados:
+Para cada documento doc en documents (ordenados por fecha):
+  Si ya fue procesado, continuar.
+  
+  Calcular variables de estado:
+  - isContinuation = (doc.emisorRFC === currentReceptorRFC)
+    // El emisor es quien posee actualmente → continuación normal
+  - rfcAppearedBefore = rfcHistory.includes(doc.emisorRFC)
+    // El RFC emisor ya apareció antes en la cadena
+  - isPotentialReturn = rfcAppearedBefore && !isContinuation
+    // RFC apareció antes PERO no es el poseedor actual → posible retorno
+  
+  CASO 1 - CONTINUACIÓN NORMAL (PRIORIDAD MÁXIMA):
+  Si isContinuation === true:
+    Determinar estado según tipo:
+    - Si documentType === 'endorsement': state = 'ENDOSO', stateLabel = '📋 Endoso'
+    - Si documentType === 'reinvoice': state = 'REFACTURA', stateLabel = '🔄 Refactura'
+    - Si no: state = 'OK', stateLabel = '✓ OK'
+    
+    Agregar a cadena:
+    chain.push({
+      position: position++,
+      state: state,
+      stateLabel: stateLabel,
+      type: doc.documentType,
+      ...extractChainData(doc)
+    })
+    
+    Actualizar estado:
+    rfcHistory.push(doc.receptorRFC)
+    processedDocs.add(doc.fileId)
+    currentReceptorRFC = doc.receptorRFC // Nuevo propietario actual
+  
+  CASO 2 - RETORNO VÁLIDO (solo si NO es continuación):
+  Si isPotentialReturn === true:
+    Validar retorno con validateReturn(doc, chain, rfcHistory, currentReceptorRFC):
+      - El RFC emisor debe estar en rfcHistory (ya apareció antes)
+      - CRÍTICO: Si doc.emisorRFC === currentReceptorRFC, NO es retorno (es continuación normal)
+      - El VIN debe coincidir con VINs de la cadena
+      - Retorna true si es retorno válido
+    
+    Si es retorno válido:
+      chain.push({
+        position: position++,
+        state: 'RETORNO',
+        stateLabel: '🔄 Retorno',
+        type: doc.documentType,
+        ...extractChainData(doc)
+      })
+      rfcHistory.push(doc.receptorRFC)
+      processedDocs.add(doc.fileId)
+      currentReceptorRFC = doc.receptorRFC
+
+CASO 3 - DOCUMENTOS NO PROCESADOS = RUPTURAS:
+Después de iterar, para cada documento que NO está en processedDocs:
+  chain.push({
+    position: null, // Sin posición porque no se conecta
+    state: 'RUPTURA',
+    stateLabel: '⚠️ Ruptura',
+    type: doc.documentType,
+    ...extractChainData(doc)
+  })
+
+Estados posibles en la cadena:
+- 'OK': Transferencia normal y válida
+- 'ENDOSO': Transferencia mediante endoso legal
+- 'REFACTURA': Refacturación del vehículo
+- 'RETORNO': RFC que recupera un vehículo que ya tuvo (válido)
+- 'RUPTURA': Documento sin conexión con la secuencia principal (problema)
+
+PASO 7 - VALIDACIÓN DE RETORNOS (validateReturn):
+Un retorno es válido cuando:
+1. El RFC emisor apareció anteriormente en rfcHistory
+2. CRÍTICO: El RFC emisor NO es el poseedor actual (currentReceptorRFC). Si lo es, es continuación normal, NO retorno.
+3. El VIN coincide con VINs de la cadena (si hay VINs disponibles)
+
+Ejemplo de retorno válido: A→B→C→B (B recupera el vehículo que ya tuvo)
+Ejemplo de NO retorno (intermediación): A→B→A→C (A sigue siendo propietario, transfiere a C - es continuación normal)
+
+PASO 8 - DETECCIÓN DE HUECOS (detectSequenceGapsAdvanced):
+Analiza la cadena construida para detectar gaps:
+
+Filtrar elementos secuenciales (position !== null)
+Para cada par consecutivo (current, next):
+  Si next.state === 'RETORNO': NO es gap, agregar a retornos[], continuar
+  Si next.state === 'ENDOSO': NO es gap, continuar (endosos son válidos)
+  Si current.rfcReceptor !== next.rfcEmisor Y next.state !== 'RUPTURA':
+    GAP DETECTADO:
+    gaps.push({
+      gapPosition: "Entre posición {current.position} y {next.position}",
+      expectedEmisor: current.rfcReceptor,
+      expectedNombreEmisor: current.nombreReceptor,
+      foundEmisor: next.rfcEmisor,
+      foundNombreEmisor: next.nombreEmisor,
+      description: "Se esperaba que {current.nombreReceptor} (RFC: {current.rfcReceptor}) fuera el emisor de la siguiente transferencia, pero se encontró {next.nombreEmisor} (RFC: {next.rfcEmisor})",
+      previousDocument: { fileId, fecha, rfcReceptor, nombreReceptor },
+      nextDocument: { fileId, fecha, rfcEmisor, nombreEmisor }
+    })
+
+Documentos huérfanos (RUPTURA):
+Si hay elementos con state === 'RUPTURA':
+  gaps.push({
+    gapPosition: 'Documentos sin conexión',
+    type: 'orphan_documents',
+    description: "Se encontraron {count} documento(s) que no forman parte de la secuencia principal",
+    orphanDocuments: [array de documentos huérfanos con fileId, type, fecha, rfcEmisor, nombreEmisor, rfcReceptor, nombreReceptor]
+  })
+
+Retornos válidos:
+Para cada elemento con state === 'RETORNO':
+  retornos.push({
+    position: "Posición {item.position}",
+    description: "{item.nombreReceptor} ({item.rfcReceptor}) recuperó el vehículo",
+    previousOwner: elemento_anterior.nombreReceptor,
+    previousRFC: elemento_anterior.rfcReceptor,
+    returnedTo: item.rfcEmisor,
+    returnedToName: item.nombreEmisor,
+    fecha: item.fecha
+  })
+
+Retornar: { hasGaps: gaps.length > 0, hasRetornos: retornos.length > 0, gaps: [], retornos: [] }
+
+═══════════════════════════════════════════════════════════════════════════════
+ESTRUCTURA DE RESPUESTA DEL ANÁLISIS
+═══════════════════════════════════════════════════════════════════════════════
+
+{
+  success: true,
+  vin: "3GCPY9EH8LG352317",
+  totalDocuments: 5,
+  totalInvoices: 2,
+  totalReinvoices: 2,
+  totalEndorsements: 1,
+  
+  originDocument: {
+    fileId: "uuid",
+    fecha: "25/06/2020",
+    rfcEmisor: "COA030402N59",
+    nombreEmisor: "Car One Americana",
+    rfcReceptor: "LFC1106205B4",
+    nombreReceptor: "Lumo Financiera Del Centro",
+    documentType: "invoice"
+  },
+  
+  ownershipChain: [
+    {
+      position: 1, // null si es RUPTURA
+      state: "OK" | "ENDOSO" | "REFACTURA" | "RETORNO" | "RUPTURA",
+      stateLabel: "✓ Origen" | "📋 Endoso" | "🔄 Refactura" | "🔄 Retorno" | "⚠️ Ruptura",
+      type: "invoice" | "reinvoice" | "endorsement",
+      fileId: "uuid",
+      documentUrl: "https://...",
+      createdAt: "2025-09-26T...",
+      fecha: "25/06/2020",
+      numeroDocumento: "12345",
+      rfcEmisor: "COA030402N59",
+      nombreEmisor: "Car One Americana",
+      rfcReceptor: "LFC1106205B4",
+      nombreReceptor: "Lumo Financiera Del Centro",
+      total: "450000.00" | null,
+      usadoNuevo: "NUEVO" | "USADO" | null,
+      vin: "3GCPY9EH8LG352317",
+      vehiculo: {
+        marca: "CHEVROLET",
+        modelo: "SILVERADO DOBLE",
+        ano: "2020"
+      }
+    }
+    // ... más elementos
+  ],
+  
+  sequenceAnalysis: {
+    hasGaps: false,
+    hasRetornos: true,
+    totalGaps: 0,
+    totalRetornos: 1,
+    gaps: [
+      {
+        gapPosition: "Entre posición 2 y 3",
+        expectedEmisor: "RFC-C",
+        expectedNombreEmisor: "Persona C",
+        foundEmisor: "RFC-D",
+        foundNombreEmisor: "Agencia D",
+        description: "Se esperaba que Persona C (RFC: RFC-C) fuera el emisor...",
+        previousDocument: { fileId, fecha, rfcReceptor, nombreReceptor },
+        nextDocument: { fileId, fecha, rfcEmisor, nombreEmisor }
+      }
+      // O para documentos huérfanos:
+      {
+        gapPosition: "Documentos sin conexión",
+        type: "orphan_documents",
+        description: "Se encontraron 2 documento(s) sin conexión",
+        orphanDocuments: [...]
+      }
+    ],
+    retornos: [
+      {
+        position: "Posición 4",
+        description: "Lumo Financiera (RFC-B) recuperó el vehículo",
+        previousOwner: "Persona A",
+        previousRFC: "RFC-C",
+        returnedTo: "RFC-B",
+        returnedToName: "Lumo Financiera",
+        fecha: "15/08/2021"
+      }
+    ],
+    isComplete: !hasGaps
+  },
+  
+  metadata: {
+    analyzedAt: "2025-01-15T10:30:00.000Z",
+    vehicleActive: true,
+    createdAt: "2025-09-26T..."
+  }
+}
+
+═══════════════════════════════════════════════════════════════════════════════
+CASOS DE USO Y EJEMPLOS PRÁCTICOS
+═══════════════════════════════════════════════════════════════════════════════
+
+CASO 1 - Secuencia Completa Sin Huecos:
+Expediente:
+- Factura 1: Concesionaria (RFC-A) → Financiera (RFC-B) [NUEVO]
+- Factura 2: Financiera (RFC-B) → Persona (RFC-C) [USADO]
+- Refactura 3: Persona (RFC-C) → Agencia (RFC-D) [USADO]
+
+Resultado:
+- ✅ Secuencia completa (isComplete: true)
+- 0 huecos
+- 0 retornos
+- Cadena: A→B→C→D (todas con state: 'OK' o 'REFACTURA')
+
+CASO 2 - Secuencia con Retorno Válido:
+Expediente:
+- Factura 1: Concesionaria (RFC-A) → Financiera (RFC-B) [NUEVO]
+- Factura 2: Financiera (RFC-B) → Persona (RFC-C) [USADO]
+- Refactura 3: Persona (RFC-C) → Agencia (RFC-D) [USADO]
+- Refactura 4: Agencia (RFC-D) → Financiera (RFC-B) [USADO] ← RETORNO
+
+Resultado:
+- ✅ Secuencia completa
+- 0 huecos (retornos NO son gaps)
+- 1 retorno: RFC-B recupera el vehículo de RFC-D
+- Cadena: A→B→C→D→B (última con state: 'RETORNO')
+
+CASO 3 - Secuencia con Hueco:
+Expediente:
+- Factura 1: Concesionaria (RFC-A) → Financiera (RFC-B) [NUEVO]
+- Factura 2: Financiera (RFC-B) → Persona (RFC-C) [USADO]
+- Refactura 3: Agencia (RFC-D) → Persona2 (RFC-E) [USADO] ← HUECO (falta documento donde RFC-C transfiere a RFC-D)
+
+Resultado:
+- ⚠️ Secuencia incompleta (isComplete: false)
+- 1 hueco: Entre posición 2 y 3
+  - Se esperaba: Persona (RFC-C) como emisor
+  - Se encontró: Agencia (RFC-D) como emisor
+- 1 documento huérfano: Refactura 3 (state: 'RUPTURA', position: null)
+- Cadena: A→B [OK], D→E [RUPTURA]
+
+CASO 4 - Secuencia con Endoso:
+Expediente:
+- Factura 1: Concesionaria (RFC-A) → Financiera (RFC-B) [NUEVO]
+- Factura 2: Financiera (RFC-B) → Persona (RFC-C) [USADO]
+- Endoso 3: Persona (RFC-C) → Persona2 (RFC-D) [ENDOSO]
+
+Resultado:
+- ✅ Secuencia completa
+- 0 huecos (endosos NO son gaps, son transferencias válidas)
+- Cadena: A→B→C→D (posición 3 con state: 'ENDOSO')
+
+CASO 5 - Intermediación (Edge Case Crítico):
+Expediente:
+- Factura 1: Concesionaria (RFC-A) → Financiera (RFC-B) [NUEVO]
+- Factura 2: Financiera (RFC-B) → Agencia (RFC-A) [USADO] ← Agencia compra
+- Refactura 3: Agencia (RFC-A) → Persona (RFC-C) [USADO] ← Agencia vende
+
+Problema potencial: La refactura 3 (A→C) podría confundirse con retorno porque RFC-A ya apareció antes.
+
+Solución: El algoritmo valida PRIMERO isContinuation (A === currentReceptorRFC). Como A es el propietario actual, es continuación normal, NO retorno.
+
+Resultado:
+- ✅ Secuencia completa
+- 0 huecos
+- 0 retornos (correctamente identificado como continuación)
+- Cadena: A→B→A→C (todas con state: 'OK' o 'REFACTURA')
+
+═══════════════════════════════════════════════════════════════════════════════
+NOTAS CRÍTICAS SOBRE LA LÓGICA
+═══════════════════════════════════════════════════════════════════════════════
+
+⚠️ ORDEN DE VALIDACIONES ES CRÍTICO:
+En buildOwnershipChainAdvanced(), el orden de las validaciones DEBE ser:
+1. PRIMERO: if (isContinuation) → Continuación normal
+2. SEGUNDO: else if (isPotentialReturn) → Retorno válido
+
+NO invertir este orden. Si se invierte, casos de intermediación (A→B→A→C) se marcarían incorrectamente como retornos.
+
+Razón: En intermediación, la tercera transferencia (A→C) cumple AMBAS condiciones:
+- isContinuation = true (A es el propietario actual)
+- isPotentialReturn = true (A apareció antes)
+
+Pero debe tratarse como continuación normal, por eso se valida primero isContinuation.
+
+🔄 RETORNOS vs CONTINUACIONES:
+- Retorno válido: RFC emisor apareció antes Y NO es el propietario actual. Ejemplo: A→B→C→B
+- Continuación normal: RFC emisor ES el propietario actual. Ejemplo: A→B→A→C (A sigue siendo propietario)
+
+📋 ENDOSOS Y REFACTURAS:
+- Endosos: NO se consideran gaps. Son transferencias válidas mediante endoso legal. Campos diferentes: rfc_endosante/rfc_endosatario.
+- Refacturas: NO se consideran gaps. Son transferencias posteriores a la venta original. Por defecto usado_nuevo: "USADO".
+
+🔍 DETECCIÓN DE HUECOS:
+Un gap se detecta cuando:
+- Entre dos documentos consecutivos en la cadena, el RFC receptor del primero NO coincide con el RFC emisor del segundo
+- Y el segundo documento NO es un retorno válido (retornos son válidos, no son gaps)
+- Y el segundo documento NO es un endoso (endosos son válidos, no son gaps)
+
+Documentos huérfanos (RUPTURA) también se consideran gaps porque no forman parte de la secuencia principal.
+
+═══════════════════════════════════════════════════════════════════════════════
+ENDPOINTS DE API
+═══════════════════════════════════════════════════════════════════════════════
+
+Base URL: http://localhost:3000/api
+
+POST /api/auth
+Request: { email: string, password: string }
+Response: { success: boolean, message: string, tokenInfo: { isValid, timeRemaining, expiresAt } }
+Autentica con API Nexcar y almacena token en memoria.
+
+POST /api/fetch-expediente
+Request: { url_or_id: string } // URL de Nexcar o Vehicle ID directo
+Response: { success: boolean, searchType: "expediente_completo", data: { vehicle_id, vin, total_files, invoices[], reinvoices[], other_documents[] }, raw_expediente: {} }
+Extrae Vehicle ID de URL si es necesario, obtiene expediente completo de API Nexcar, almacena en currentExpediente.
+
+POST /api/analyze-sequence
+Request: {} // No requiere parámetros, usa currentExpediente en memoria
+Response: Estructura completa de análisis (ver arriba)
+Ejecuta SequenceAnalyzer.analyzeOwnershipSequence() y retorna resultados.
+
+GET /api/token-status
+Response: { success: boolean, isValid: boolean, timeRemaining: number, hasToken: boolean, expiresAt: string }
+Estado del token actual.
+
+DELETE /api/clear-token
+Response: { success: boolean, message: string }
+Limpia token y fuerza nueva autenticación.
+
+DELETE /api/clear
+Response: { success: boolean, message: string }
+Limpia currentExpediente y currentDocument.
+
+GET /api/health
+Response: { success: boolean, service: string, status: string, hasExpediente: boolean, hasDocument: boolean, tokenValid: boolean, timestamp: string }
+Health check del servicio.
+
+═══════════════════════════════════════════════════════════════════════════════
+FRONTEND - FLUJO DE USUARIO
+═══════════════════════════════════════════════════════════════════════════════
+
+1. Autenticación: Usuario ingresa email/password → authenticateUser() → POST /api/auth → Muestra estado del token.
+
+2. Búsqueda: Usuario ingresa URL de Nexcar o Vehicle ID → fetchExpediente() → POST /api/fetch-expediente → Muestra resumen con facturas, refacturas, endosos separados.
+
+3. Análisis: Usuario hace clic en "Analizar Secuencia" → analyzeSequence() → POST /api/analyze-sequence → displayAnalysisResults() muestra:
+   - Resumen: VIN, total documentos, huecos, retornos
+   - Documento de origen
+   - Alertas de retornos (si hay)
+   - Alertas de huecos con detalles (si hay)
+   - Cadena completa visual con cards para cada transferencia (Emisor → Receptor, badges de estado, metadatos)
+
+═══════════════════════════════════════════════════════════════════════════════
+EDGE CASES Y MANEJO DE ERRORES
+═══════════════════════════════════════════════════════════════════════════════
+
+1. Documentos sin fecha: Se ordenan al final, se intentan conectar por RFCs únicamente.
+
+2. Múltiples facturas de origen: Solo se usa la primera con usado_nuevo: "NUEVO", las demás se tratan como facturas normales.
+
+3. VIN inconsistente: Si hay VINs diferentes en el mismo expediente → ERROR, se detiene el análisis y se reporta inconsistencia.
+
+4. Documentos sin OCR: Se filtran en el paso 1, no se procesan.
+
+5. Token expirado: Se valida automáticamente antes de cada request a API Nexcar. Si expiró, se autentica automáticamente con credenciales por defecto.
+
+6. No se encuentra documento de origen: Retorna error "No se encontró el documento de origen (usado_nuevo: 'NUEVO')".
+
+7. No hay documentos fiscales: Retorna error "No se encontraron facturas ni endosos en el expediente".
+
+═══════════════════════════════════════════════════════════════════════════════
+CONFIGURACIÓN
+═══════════════════════════════════════════════════════════════════════════════
+
+Puerto: 3000 (configurable con process.env.PORT)
+API Nexcar: https://nexcar-api-770231222dff.herokuapp.com (hardcodeada en nexcarClient.js)
+Credenciales: facturacion@nexcar.mx / M4u2025!! (hardcodeadas en routes.js líneas 14-15)
+Dependencias: express ^4.18.2, axios ^1.6.0, cors ^2.8.5, nodemon ^3.0.1 (dev)
+
+═══════════════════════════════════════════════════════════════════════════════
+FIN DEL CONTEXTO
+═══════════════════════════════════════════════════════════════════════════════
+
+Este bloque contiene TODO el contexto necesario para entender, modificar o extender el proyecto. La lógica principal está en src/api/sequenceAnalyzer.js, específicamente en analyzeOwnershipSequence() que ejecuta los 8 pasos descritos arriba. El algoritmo construye la cadena de propiedad validando continuidad de RFCs (receptor de N debe ser emisor de N+1), detecta huecos cuando esta continuidad se rompe, identifica retornos válidos cuando un RFC recupera un vehículo que ya tuvo, y maneja endosos y refacturas como transferencias válidas que no se consideran gaps.
+

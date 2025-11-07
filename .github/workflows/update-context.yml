@@ -1,0 +1,58 @@
+name: Actualizar Contexto del Proyecto
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - develop
+    paths:
+      - 'src/**'
+      - 'public/**'
+      - 'package.json'
+      - 'README.md'
+
+jobs:
+  update-context:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Generar contexto del proyecto
+        run: node scripts/generate-context.js
+
+      - name: Verificar cambios
+        id: verify-changes
+        run: |
+          if git diff --quiet CONTEXTO_COMPLETO_PROYECTO.md; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit y push cambios
+        if: steps.verify-changes.outputs.changed == 'true'
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add CONTEXTO_COMPLETO_PROYECTO.md
+          git commit -m "docs: Actualizar contexto del proyecto automáticamente [skip ci]"
+          git push
+
