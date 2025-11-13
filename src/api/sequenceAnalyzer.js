@@ -10,13 +10,20 @@ class SequenceAnalyzer {
       };
     }
 
-    // 1. Filtrar facturas, refacturas Y endosos
-    const documents = expedienteData.files.filter(file => 
-      (file.document_type === 'invoice' || 
-       file.document_type === 'reinvoice' || 
-       file.document_type === 'endorsement') && 
-      file.ocr && 
-      typeof file.ocr === 'object'
+    // Guardar TODOS los documentos (incluyendo verificaciones)
+    const allFiles = expedienteData.files.filter(file => 
+      file.ocr && typeof file.ocr === 'object'
+    );
+
+    // Normalizar TODOS los documentos
+    const allDocumentsNormalized = allFiles.map(doc => this.normalizeDocument(doc));
+    console.log(`Total de documentos (incluye verificaciones): ${allDocumentsNormalized.length}`);
+
+    // Ahora filtrar solo facturas/refacturas/endosos para análisis de cadena
+    const documents = allFiles.filter(file => 
+      file.document_type === 'invoice' || 
+      file.document_type === 'reinvoice' || 
+      file.document_type === 'endorsement'
     );
 
     if (documents.length === 0) {
@@ -132,6 +139,30 @@ class SequenceAnalyzer {
       patternDetection = null;
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // ANÁLISIS DE VERIFICACIONES VEHICULARES
+    // ═══════════════════════════════════════════════════════════════
+    let verificationAnalysis = null;
+
+    try {
+      console.log('→ Ejecutando análisis de verificaciones...');
+      
+      if (typeof this.analyzeVerifications === 'function') {
+        // Pasar todos los documentos normalizados y los documentos de cadena
+        verificationAnalysis = this.analyzeVerifications(
+          allDocumentsNormalized, 
+          sortedDocs
+        );
+        console.log('✓ Análisis de verificaciones completado');
+      } else {
+        console.warn('⚠ analyzeVerifications no está definido');
+      }
+      
+    } catch (error) {
+      console.error('❌ Error en análisis de verificaciones:', error.message);
+      verificationAnalysis = null;
+    }
+
     // ========== RETURN CON TODA LA INFORMACIÓN ==========
     const response = {
       // MANTENER ESTRUCTURA EXISTENTE (NO MODIFICAR)
@@ -176,6 +207,11 @@ class SequenceAnalyzer {
     if (patternDetection) {
       response.patternDetection = patternDetection;
       console.log('✓ patternDetection agregado al response');
+    }
+    // Agregar análisis de verificaciones
+    if (verificationAnalysis) {
+      response.verificationAnalysis = verificationAnalysis;
+      console.log('✓ verificationAnalysis agregado al response');
     }
     if (temporalAnalysis) {
       response.temporalAnalysis = temporalAnalysis;
@@ -278,6 +314,46 @@ class SequenceAnalyzer {
           modelo: ocr.modelo_vehiculo || null,
           ano: ocr.ano_vehiculo || ocr.vehiculo_modelo_ano || null
         }
+      };
+    }
+    // ═══════════════════════════════════════════════════════════════
+    // VERIFICACIONES (verification) - Comprobantes de verificación vehicular
+    // ═══════════════════════════════════════════════════════════════
+    const isVerification = doc.document_type === 'verification';
+
+    if (isVerification) {
+      return {
+        fileId: doc.file_id,
+        documentType: 'verification',
+        createdAt: doc.created_at || null,
+        
+        // Campos específicos de verificación
+        fechaEmision: ocr.fecha_hora_emision || null,
+        vigencia: ocr.vigencia || null,
+        nombrePropietario: ocr.nombre_propietario || null,
+        resultado: ocr.resultado || null,
+        periodo: ocr.periodo || null,
+        folio: ocr.folio || null,
+        
+        // Datos del vehículo
+        vin: ocr.niv_vin || ocr.vin || null,
+        placa: ocr.placa || null,
+        marca: ocr.marca || null,
+        modelo: ocr.modelo || null,
+        ano: ocr.ano || null,
+        
+        // Compatibilidad con sistema existente
+        fecha: ocr.fecha_hora_emision || doc.created_at || null,
+        
+        // Campos que no aplican (mantener null para compatibilidad)
+        rfcEmisor: null,
+        rfcReceptor: null,
+        nombreEmisor: null,
+        nombreReceptor: null,
+        total: null,
+        usadoNuevo: null,
+        pedimento: null,
+        detallesVehiculo: null
       };
     }
 
@@ -1939,6 +2015,354 @@ class SequenceAnalyzer {
     } catch (error) {
       console.error('Error en detectRepeatedRFCPairs:', error);
       return [];
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // ANÁLISIS DE VERIFICACIONES VEHICULARES
+  // Detecta huecos temporales e inconsistencias de propietario
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Analiza todos los comprobantes de verificación del expediente
+   * Detecta: huecos temporales, inconsistencias de propietario
+   */
+  analyzeVerifications(allDocuments, ownershipDocuments) {
+    console.log('  → analyzeVerifications iniciando...');
+    
+    const result = {
+      hasVerifications: false,
+      totalVerifications: 0,
+      hasGaps: false,
+      hasInconsistencies: false,
+      expectedOwner: null,
+      verifications: [],
+      gaps: [],
+      inconsistencies: []
+    };
+
+    if (!allDocuments || !Array.isArray(allDocuments)) {
+      return result;
+    }
+
+    try {
+      // Filtrar solo verificaciones
+      const verifications = allDocuments.filter(doc => 
+        doc.documentType === 'verification'
+      );
+      
+      if (verifications.length === 0) {
+        console.log('  ℹ️ No hay verificaciones en el expediente');
+        return result;
+      }
+
+      result.hasVerifications = true;
+      result.totalVerifications = verifications.length;
+      console.log(`  → ${verifications.length} verificaciones encontradas`);
+
+      // PASO 1: Determinar quién es el propietario actual esperado
+      // Revisamos facturas/refacturas/endosos para saber a nombre de quién
+      // deberían estar las verificaciones
+      result.expectedOwner = this.determineExpectedOwner(ownershipDocuments);
+      console.log('  → Propietario esperado:', result.expectedOwner);
+
+      // PASO 2: Ordenar verificaciones por fecha (más antigua primero)
+      const sortedVerifications = this.sortVerificationsByDate(verifications);
+      
+      // PASO 3: Procesar cada verificación
+      result.verifications = sortedVerifications.map((ver, index) => {
+        // Parsear fecha de vigencia para cálculos posteriores
+        const vigenciaDate = this.parseDate(ver.vigencia);
+        
+        // Comparar nombre en verificación vs propietario esperado
+        const ownerMatches = this.compareOwnerNames(
+          ver.nombrePropietario, 
+          result.expectedOwner
+        );
+        
+        return {
+          position: index + 1,
+          fileId: ver.fileId,
+          fechaEmision: ver.fechaEmision,
+          vigencia: ver.vigencia,
+          vigenciaDate: vigenciaDate ? vigenciaDate.toISOString() : null,
+          nombrePropietario: ver.nombrePropietario,
+          resultado: ver.resultado,
+          periodo: ver.periodo,
+          folio: ver.folio,
+          ownerMatches: ownerMatches
+        };
+      });
+
+      // PASO 4: Detectar huecos temporales
+      // Un hueco es cuando entre una verificación y la siguiente pasa mucho tiempo
+      result.gaps = this.detectVerificationGaps(result.verifications);
+      result.hasGaps = result.gaps.length > 0;
+
+      // PASO 5: Detectar inconsistencias de propietario
+      // Una inconsistencia es cuando la verificación está a nombre de otra persona
+      result.inconsistencies = this.detectOwnerInconsistencies(
+        result.verifications, 
+        result.expectedOwner
+      );
+      result.hasInconsistencies = result.inconsistencies.length > 0;
+
+      console.log('  ✓ Análisis completado:');
+      console.log(`    - ${result.gaps.length} huecos temporales`);
+      console.log(`    - ${result.inconsistencies.length} inconsistencias de propietario`);
+
+    } catch (error) {
+      console.error('  ❌ Error en analyzeVerifications:', error.message);
+    }
+
+    return result;
+  }
+
+  /**
+   * Determina el propietario actual del vehículo según la documentación
+   * Prioridad: último endoso > última refactura > factura original
+   */
+  determineExpectedOwner(documents) {
+    if (!documents || documents.length === 0) return null;
+
+    try {
+      // Ordenar documentos por fecha (más reciente primero)
+      const sorted = [...documents].sort((a, b) => {
+        const dateA = this.parseDate(a.fecha);
+        const dateB = this.parseDate(b.fecha);
+        if (!dateA) return 1;
+        if (!dateB) return -1;
+        return dateB - dateA; // Descendente
+      });
+
+      // Buscar en orden de prioridad
+      for (const doc of sorted) {
+        // Prioridad 1: Si hay endoso, el endosatario es el dueño
+        if (doc.documentType === 'endorsement' && doc.receptorNombre) {
+          return doc.receptorNombre;
+        }
+
+        // Prioridad 2: Si hay refactura, el comprador es el dueño
+        if (doc.documentType === 'reinvoice' && doc.receptorNombre) {
+          return doc.receptorNombre;
+        }
+
+        // Prioridad 3: Si solo hay factura, el comprador original es el dueño
+        if (doc.documentType === 'invoice' && doc.receptorNombre) {
+          return doc.receptorNombre;
+        }
+      }
+
+      return null;
+
+    } catch (error) {
+      console.error('Error en determineExpectedOwner:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Ordena verificaciones por fecha de emisión (más antigua primero)
+   */
+  sortVerificationsByDate(verifications) {
+    try {
+      return [...verifications].sort((a, b) => {
+        const dateA = this.parseDate(a.fechaEmision || a.fecha);
+        const dateB = this.parseDate(b.fechaEmision || b.fecha);
+        
+        if (!dateA) return 1;
+        if (!dateB) return -1;
+        
+        return dateA - dateB; // Ascendente
+      });
+    } catch (error) {
+      return verifications;
+    }
+  }
+
+  /**
+   * Detecta huecos temporales entre verificaciones
+   * Un hueco existe cuando pasa mucho tiempo entre el fin de vigencia
+   * de una verificación y la emisión de la siguiente
+   */
+  detectVerificationGaps(verifications) {
+    const gaps = [];
+    
+    if (verifications.length === 0) return gaps;
+
+    try {
+      // Revisar cada par de verificaciones consecutivas
+      for (let i = 0; i < verifications.length - 1; i++) {
+        const current = verifications[i];
+        const next = verifications[i + 1];
+
+        if (!current.vigenciaDate || !next.fechaEmision) continue;
+
+        const vigenciaEnd = new Date(current.vigenciaDate);
+        const nextEmision = this.parseDate(next.fechaEmision);
+
+        // Calcular cuántos días pasaron entre fin de vigencia y nueva verificación
+        const daysDiff = (nextEmision - vigenciaEnd) / (1000 * 60 * 60 * 24);
+
+        // Si pasaron más de 30 días (1 mes), hay un hueco
+        if (daysDiff > 30) {
+          const monthsDiff = Math.round(daysDiff / 30);
+          
+          gaps.push({
+            type: 'temporal_gap',
+            fromPosition: current.position,
+            toPosition: next.position,
+            fromVigencia: current.vigencia,
+            toEmision: next.fechaEmision,
+            daysDifference: Math.round(daysDiff),
+            monthsEstimate: monthsDiff,
+            severity: monthsDiff >= 6 ? 'high' : monthsDiff >= 3 ? 'medium' : 'low',
+            description: `Hueco de ${monthsDiff} meses entre verificaciones`
+          });
+        }
+      }
+
+      // Verificar si la última verificación ya expiró (hueco actual)
+      const lastVerification = verifications[verifications.length - 1];
+      if (lastVerification.vigenciaDate) {
+        const lastVigencia = new Date(lastVerification.vigenciaDate);
+        const today = new Date();
+        const daysSinceExpired = (today - lastVigencia) / (1000 * 60 * 60 * 24);
+
+        // Si la última verificación ya expiró, hay un hueco hasta hoy
+        if (daysSinceExpired > 0) {
+          const monthsSinceExpired = Math.round(daysSinceExpired / 30);
+          
+          gaps.push({
+            type: 'current_expired',
+            position: lastVerification.position,
+            vigencia: lastVerification.vigencia,
+            daysExpired: Math.round(daysSinceExpired),
+            monthsExpired: monthsSinceExpired,
+            severity: monthsSinceExpired >= 6 ? 'high' : monthsSinceExpired >= 3 ? 'medium' : 'low',
+            description: `Última verificación vencida hace ${monthsSinceExpired} meses`
+          });
+        }
+      }
+
+    } catch (error) {
+      console.error('Error en detectVerificationGaps:', error);
+    }
+
+    return gaps;
+  }
+
+  /**
+   * Detecta inconsistencias de propietario en verificaciones
+   * Una inconsistencia es cuando la verificación está a nombre de persona
+   * diferente al propietario esperado del vehículo
+   */
+  detectOwnerInconsistencies(verifications, expectedOwner) {
+    const inconsistencies = [];
+
+    if (!expectedOwner) {
+      console.warn('  ⚠ No se pudo determinar propietario esperado');
+      return inconsistencies;
+    }
+
+    try {
+      verifications.forEach(ver => {
+        // Si falta el nombre del propietario en la verificación
+        if (!ver.nombrePropietario) {
+          inconsistencies.push({
+            position: ver.position,
+            type: 'missing_owner',
+            fechaEmision: ver.fechaEmision,
+            expectedOwner: expectedOwner,
+            actualOwner: null,
+            severity: 'medium',
+            description: 'Verificación sin nombre de propietario'
+          });
+          return;
+        }
+
+        // Si el nombre no coincide
+        if (!ver.ownerMatches) {
+          const similarity = this.calculateNameSimilarity(
+            ver.nombrePropietario, 
+            expectedOwner
+          );
+
+          inconsistencies.push({
+            position: ver.position,
+            type: 'owner_mismatch',
+            fechaEmision: ver.fechaEmision,
+            expectedOwner: expectedOwner,
+            actualOwner: ver.nombrePropietario,
+            similarity: similarity,
+            severity: similarity < 0.5 ? 'high' : 'medium',
+            description: `Propietario no coincide (similitud: ${Math.round(similarity * 100)}%)`
+          });
+        }
+      });
+
+    } catch (error) {
+      console.error('Error en detectOwnerInconsistencies:', error);
+    }
+
+    return inconsistencies;
+  }
+
+  /**
+   * Compara dos nombres de propietarios
+   * Retorna true si son suficientemente similares (80% o más)
+   */
+  compareOwnerNames(name1, name2) {
+    if (!name1 || !name2) return false;
+
+    try {
+      // Normalizar ambos nombres (quitar acentos, espacios, mayúsculas)
+      const normalized1 = this.normalizeText(name1);
+      const normalized2 = this.normalizeText(name2);
+
+      // Si son exactamente iguales después de normalizar
+      if (normalized1 === normalized2) return true;
+
+      // Si no son exactos, calcular similitud
+      const similarity = this.calculateNameSimilarity(name1, name2);
+      
+      // Consideramos que coinciden si similitud >= 80%
+      return similarity >= 0.8;
+
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
+   * Calcula qué tan similares son dos nombres (0 = totalmente diferentes, 1 = idénticos)
+   * Usa un algoritmo simple de palabras en común
+   */
+  calculateNameSimilarity(name1, name2) {
+    if (!name1 || !name2) return 0;
+
+    try {
+      const norm1 = this.normalizeText(name1);
+      const norm2 = this.normalizeText(name2);
+
+      if (norm1 === norm2) return 1;
+
+      // Separar en palabras
+      const words1 = new Set(norm1.split(' ').filter(w => w.length > 0));
+      const words2 = new Set(norm2.split(' ').filter(w => w.length > 0));
+      
+      // Contar cuántas palabras tienen en común
+      let commonWords = 0;
+      words1.forEach(word => {
+        if (words2.has(word)) commonWords++;
+      });
+
+      // Calcular porcentaje de similitud
+      const totalWords = Math.max(words1.size, words2.size);
+      return totalWords > 0 ? commonWords / totalWords : 0;
+
+    } catch (error) {
+      return 0;
     }
   }
 }
