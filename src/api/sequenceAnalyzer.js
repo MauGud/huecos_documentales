@@ -110,6 +110,28 @@ class SequenceAnalyzer {
       }
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // FASE 2: DETECCIÓN DE PATRONES SOSPECHOSOS
+    // ═══════════════════════════════════════════════════════════════
+    try {
+      console.log('→ Ejecutando detección de patrones sospechosos...');
+      
+      if (ownershipChain && Array.isArray(ownershipChain) && 
+          ownershipChain.length > 0 && sortedDocs) {
+        
+        if (typeof this.detectSuspiciousPatterns === 'function') {
+          patternDetection = this.detectSuspiciousPatterns(ownershipChain, sortedDocs);
+          console.log('✓ Detección de patrones completada');
+        } else {
+          console.warn('⚠ detectSuspiciousPatterns no está definido');
+        }
+      }
+      
+    } catch (error) {
+      console.error('❌ Error en detección de patrones:', error.message);
+      patternDetection = null;
+    }
+
     // ========== RETURN CON TODA LA INFORMACIÓN ==========
     const response = {
       // MANTENER ESTRUCTURA EXISTENTE (NO MODIFICAR)
@@ -150,8 +172,10 @@ class SequenceAnalyzer {
       response.integrityAnalysis = integrityAnalysis;
       console.log('✓ integrityAnalysis agregado al response');
     }
+    // Agregar detección de patrones solo si existe
     if (patternDetection) {
       response.patternDetection = patternDetection;
+      console.log('✓ patternDetection agregado al response');
     }
     if (temporalAnalysis) {
       response.temporalAnalysis = temporalAnalysis;
@@ -987,96 +1011,391 @@ class SequenceAnalyzer {
   /**
    * Detecta patrones sospechosos en la secuencia
    * @param {Array} chain - Cadena de propiedad construida
-   * @param {Array} documents - Documentos originales
+   * @param {Array} documents - Documentos originales normalizados
    * @returns {Object} Patrones detectados
    */
   detectSuspiciousPatterns(chain, documents) {
-    try {
-      const patterns = {
-        pingPong: this.detectPingPongPattern(chain),
-        rapidTriangulation: this.detectRapidTriangulation(chain, documents),
-        endorsementChains: this.detectEndorsementChains(chain),
-        frequentRFCs: this.detectFrequentRFCs(chain),
-        complexCycles: this.detectComplexCycles(chain)
-      };
+    console.log('  → detectSuspiciousPatterns iniciando...');
+    
+    const result = {
+      hasSuspiciousPatterns: false,
+      suspiciousCount: 0,
+      patterns: {
+        pingPong: [],
+        rapidTriangulation: [],
+        endorsementChains: [],
+        frequentRFCs: [],
+        complexCycles: []
+      }
+    };
 
-      const suspiciousCount = Object.values(patterns)
-        .reduce((sum, arr) => sum + (Array.isArray(arr) ? arr.length : 0), 0);
-
-      return {
-        hasSuspiciousPatterns: suspiciousCount > 0,
-        suspiciousCount: suspiciousCount,
-        patterns: patterns
-      };
-    } catch (error) {
-      console.error('Error en detectSuspiciousPatterns:', error);
-      return {
-        hasSuspiciousPatterns: false,
-        suspiciousCount: 0,
-        patterns: {
-          pingPong: [],
-          rapidTriangulation: [],
-          endorsementChains: [],
-          frequentRFCs: [],
-          complexCycles: []
-        }
-      };
+    if (!chain || !Array.isArray(chain) || chain.length === 0) {
+      console.warn('  ⚠ chain inválida');
+      return result;
     }
+
+    try {
+      // Detectar cada patrón
+      result.patterns.pingPong = this.detectPingPongPattern(chain, documents);
+      result.patterns.rapidTriangulation = this.detectRapidTriangulation(chain, documents);
+      result.patterns.endorsementChains = this.detectEndorsementChains(chain);
+      result.patterns.frequentRFCs = this.detectFrequentRFCs(chain);
+      result.patterns.complexCycles = this.detectComplexCycles(chain);
+      
+      // Calcular total de patrones sospechosos
+      result.suspiciousCount = 
+        result.patterns.pingPong.length +
+        result.patterns.rapidTriangulation.length +
+        result.patterns.endorsementChains.length +
+        result.patterns.frequentRFCs.length +
+        result.patterns.complexCycles.length;
+      
+      result.hasSuspiciousPatterns = result.suspiciousCount > 0;
+      
+      console.log('  ✓ detectSuspiciousPatterns completado');
+      console.log('  → Patrones encontrados:', result.suspiciousCount);
+      
+    } catch (error) {
+      console.error('  ❌ Error en detectSuspiciousPatterns:', error.message);
+    }
+    
+    return result;
   }
 
   /**
-   * Detecta patrón de ping-pong entre dos RFCs
+   * Detecta patrón de ping-pong entre dos RFCs con validación anti-duplicados
+   * REGLA CRÍTICA: No contar como ping-pong si son duplicados administrativos
    * @param {Array} chain - Cadena de propiedad
+   * @param {Array} documents - Documentos originales
    * @returns {Array} Patrones de ping-pong detectados
    */
-  detectPingPongPattern(chain) {
+  detectPingPongPattern(chain, documents) {
+    const patterns = [];
+    
     try {
-      const patterns = [];
-      const pairCounts = {};
-      const sequential = chain.filter(item => item.position !== null);
+      // PASO 1: Filtrar duplicados administrativos
+      const uniqueTransfers = this.filterAdministrativeDuplicates(chain, documents);
       
-      for (let i = 0; i < sequential.length - 1; i++) {
-        const current = sequential[i];
-        const next = sequential[i + 1];
+      if (uniqueTransfers.length < 3) {
+        return []; // Necesitamos al menos 3 transferencias para ping-pong
+      }
+      
+      // PASO 2: Buscar patrones A↔B en transferencias únicas
+      const pairCounts = {};
+      
+      for (let i = 0; i < uniqueTransfers.length - 1; i++) {
+        const current = uniqueTransfers[i];
+        const next = uniqueTransfers[i + 1];
         
         if (current.state === 'RUPTURA' || next.state === 'RUPTURA') continue;
         
-        // Ping-pong: A→B seguido de B→A (el emisor actual recibe en el siguiente)
-        // Y el receptor actual emite en el siguiente
-        if (current.rfcEmisor === next.rfcReceptor && current.rfcReceptor === next.rfcEmisor) {
-          // Crear clave única para el par (ordenada)
-          const pairKey = [current.rfcEmisor, current.rfcReceptor].sort().join('↔');
+        // Crear clave del par (ordenada alfabéticamente para detectar A↔B y B↔A)
+        const rfcs = [current.rfcEmisor, current.rfcReceptor, next.rfcEmisor, next.rfcReceptor]
+          .filter(rfc => rfc);
+        const uniqueRFCs = [...new Set(rfcs)];
+        
+        if (uniqueRFCs.length === 2) {
+          const pairKey = uniqueRFCs.sort().join('↔');
           
           if (!pairCounts[pairKey]) {
             pairCounts[pairKey] = {
-              rfcs: [current.rfcEmisor, current.rfcReceptor].sort(),
+              rfcs: uniqueRFCs,
+              transfers: [],
               positions: []
             };
           }
           
+          pairCounts[pairKey].transfers.push(current, next);
           pairCounts[pairKey].positions.push(current.position, next.position);
         }
       }
       
-      // Filtrar pares con 3+ ocurrencias (6+ posiciones = 3+ transferencias ping-pong)
-      Object.entries(pairCounts).forEach(([_, data]) => {
-        const uniquePositions = [...new Set(data.positions)];
+      // PASO 3: Filtrar pares con 3+ transferencias (ping-pong real)
+      Object.entries(pairCounts).forEach(([pairKey, data]) => {
+        const uniquePositions = [...new Set(data.positions)].sort((a, b) => a - b);
+        
+        // Necesitamos al menos 6 posiciones (3 transferencias completas A→B→A)
         if (uniquePositions.length >= 6) {
+          
+          // Buscar los documentos originales para análisis adicional
+          const relatedDocs = documents.filter(doc => {
+            const docRFCs = [doc.emisorRFC, doc.receptorRFC].filter(r => r);
+            return data.rfcs.some(rfc => docRFCs.includes(rfc));
+          });
+          
+          // Calcular estadísticas
+          const amounts = relatedDocs.map(d => d.total).filter(a => a);
+          const dates = relatedDocs.map(d => d.fecha).filter(f => f);
+          const names = [
+            ...relatedDocs.map(d => d.emisorNombre),
+            ...relatedDocs.map(d => d.receptorNombre)
+          ].filter(n => n);
+          
+          // Detectar si comparten apellido (posible parentesco)
+          const uniqueNames = [...new Set(names)];
+          const sameLastName = this.detectSharedLastName(uniqueNames);
+          
+          // Detectar si montos son idénticos o progresivos
+          const identicalAmounts = amounts.length > 1 && 
+            amounts.every(a => a === amounts[0]);
+          
+          const progressiveAmounts = this.isProgressiveSequence(amounts);
+          
           patterns.push({
             rfcA: data.rfcs[0],
             rfcB: data.rfcs[1],
             occurrences: Math.floor(uniquePositions.length / 2),
-            positions: uniquePositions.sort((a, b) => a - b),
-            severity: uniquePositions.length >= 8 ? 'high' : 'medium'
+            positions: uniquePositions,
+            severity: uniquePositions.length >= 8 ? 'critical' : 
+                     uniquePositions.length >= 6 ? 'high' : 'medium',
+            details: {
+              totalTransfers: uniquePositions.length,
+              dateRange: dates.length >= 2 ? {
+                first: dates[0],
+                last: dates[dates.length - 1],
+                monthsDuration: this.calculateMonthsDiff(dates[0], dates[dates.length - 1])
+              } : null,
+              amounts: amounts.length > 0 ? amounts : null,
+              identicalAmounts: identicalAmounts,
+              progressiveAmounts: progressiveAmounts,
+              sameLastName: sameLastName,
+              suspiciousSignals: this.buildPingPongSignals({
+                occurrences: Math.floor(uniquePositions.length / 2),
+                identicalAmounts,
+                progressiveAmounts,
+                sameLastName,
+                monthsDuration: dates.length >= 2 ? 
+                  this.calculateMonthsDiff(dates[0], dates[dates.length - 1]) : 0
+              })
+            }
           });
         }
       });
       
-      return patterns;
     } catch (error) {
       console.error('Error en detectPingPongPattern:', error);
-      return [];
     }
+    
+    return patterns;
+  }
+
+  /**
+   * Filtra duplicados administrativos para evitar falsos positivos en ping-pong
+   * CRITERIOS: Mismo detalles_vehiculo O mismo pedimento O misma fecha emisión
+   * @param {Array} chain - Cadena de propiedad
+   * @param {Array} documents - Documentos normalizados
+   * @returns {Array} Transferencias únicas (sin duplicados)
+   */
+  filterAdministrativeDuplicates(chain, documents) {
+    const uniqueTransfers = [];
+    
+    try {
+      for (const transfer of chain) {
+        // Buscar el documento normalizado
+        const doc = documents.find(d => d.fileId === transfer.fileId);
+        if (!doc) {
+          uniqueTransfers.push(transfer);
+          continue;
+        }
+        
+        // Verificar si ya procesamos un documento similar
+        let isDuplicate = false;
+        
+        for (const processed of uniqueTransfers) {
+          const processedDoc = documents.find(d => d.fileId === processed.fileId);
+          if (!processedDoc) continue;
+          
+          // CRITERIO 1: Mismo par de RFCs
+          if (doc.emisorRFC !== processedDoc.emisorRFC ||
+              doc.receptorRFC !== processedDoc.receptorRFC) {
+            continue;
+          }
+          
+          // CRITERIO 2: Mismo detalles_vehiculo (normalizado)
+          // Construir detalles del vehículo desde los campos normalizados
+          const details1 = doc.vehiculo ? 
+            `${doc.vehiculo.marca || ''} ${doc.vehiculo.modelo || ''} ${doc.vehiculo.ano || ''}`.trim() : 
+            null;
+          const details2 = processedDoc.vehiculo ? 
+            `${processedDoc.vehiculo.marca || ''} ${processedDoc.vehiculo.modelo || ''} ${processedDoc.vehiculo.ano || ''}`.trim() : 
+            null;
+          
+          if (details1 && details2 && details1.length > 0 && details2.length > 0) {
+            const normalized1 = this.normalizeText(details1);
+            const normalized2 = this.normalizeText(details2);
+            
+            if (normalized1 === normalized2) {
+              isDuplicate = true;
+              break;
+            }
+          }
+          
+          // CRITERIO 3: Mismo número de documento/pedimento (normalizado)
+          const docNum1 = doc.numeroDocumento || null;
+          const docNum2 = processedDoc.numeroDocumento || null;
+          
+          if (docNum1 && docNum2) {
+            const normalized1 = this.normalizePedimento(docNum1);
+            const normalized2 = this.normalizePedimento(docNum2);
+            
+            if (normalized1 === normalized2) {
+              isDuplicate = true;
+              break;
+            }
+          }
+          
+          // CRITERIO 4: Misma fecha de emisión (diferencia < 1 hora)
+          if (doc.fecha && processedDoc.fecha) {
+            const date1 = this.parseDate(doc.fecha);
+            const date2 = this.parseDate(processedDoc.fecha);
+            
+            if (date1 && date2 && !isNaN(date1.getTime()) && !isNaN(date2.getTime())) {
+              const diffHours = Math.abs(date1 - date2) / (1000 * 60 * 60);
+              
+              if (diffHours < 1) {
+                isDuplicate = true;
+                break;
+              }
+            }
+          }
+        }
+        
+        if (!isDuplicate) {
+          uniqueTransfers.push(transfer);
+        }
+      }
+      
+    } catch (error) {
+      console.error('Error en filterAdministrativeDuplicates:', error);
+      return chain; // En caso de error, retornar cadena original
+    }
+    
+    return uniqueTransfers;
+  }
+
+  /**
+   * Normaliza texto para comparación (quitar acentos, espacios extra, puntuación)
+   */
+  normalizeText(text) {
+    if (!text) return '';
+    return text
+      .toString()
+      .toUpperCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '') // Quitar acentos
+      .replace(/[^\w\s]/g, '') // Quitar puntuación
+      .replace(/\s+/g, ' ') // Normalizar espacios
+      .trim();
+  }
+
+  /**
+   * Normaliza pedimento para comparación (quitar espacios y guiones)
+   */
+  normalizePedimento(pedimento) {
+    if (!pedimento) return '';
+    return pedimento.toString().replace(/[\s-]/g, '').trim();
+  }
+
+  /**
+   * Detecta si nombres comparten apellido
+   */
+  detectSharedLastName(names) {
+    if (names.length < 2) return false;
+    
+    try {
+      const lastNames = names.map(name => {
+        const parts = name.trim().split(/\s+/);
+        return parts.length > 1 ? parts[parts.length - 1].toUpperCase() : null;
+      }).filter(ln => ln);
+      
+      if (lastNames.length < 2) return false;
+      
+      // Verificar si al menos 2 apellidos son iguales
+      const lastNameCounts = {};
+      lastNames.forEach(ln => {
+        lastNameCounts[ln] = (lastNameCounts[ln] || 0) + 1;
+      });
+      
+      return Object.values(lastNameCounts).some(count => count >= 2);
+      
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
+   * Detecta si montos siguen una progresión aritmética
+   */
+  isProgressiveSequence(amounts) {
+    if (amounts.length < 3) return false;
+    
+    try {
+      const differences = [];
+      for (let i = 1; i < amounts.length; i++) {
+        differences.push(amounts[i] - amounts[i - 1]);
+      }
+      
+      // Verificar si todas las diferencias son similares (±10%)
+      const avgDiff = differences.reduce((a, b) => a + b, 0) / differences.length;
+      const tolerance = Math.abs(avgDiff * 0.1);
+      
+      return differences.every(diff => 
+        Math.abs(diff - avgDiff) <= tolerance && diff > 0
+      );
+      
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
+   * Calcula diferencia en meses entre dos fechas
+   */
+  calculateMonthsDiff(date1Str, date2Str) {
+    try {
+      const date1 = this.parseDate(date1Str);
+      const date2 = this.parseDate(date2Str);
+      
+      if (!date1 || !date2 || isNaN(date1.getTime()) || isNaN(date2.getTime())) {
+        return 0;
+      }
+      
+      const yearsDiff = date2.getFullYear() - date1.getFullYear();
+      const monthsDiff = date2.getMonth() - date1.getMonth();
+      
+      return yearsDiff * 12 + monthsDiff;
+    } catch (error) {
+      return 0;
+    }
+  }
+
+  /**
+   * Construye lista de señales sospechosas para ping-pong
+   */
+  buildPingPongSignals(data) {
+    const signals = [];
+    
+    if (data.occurrences >= 4) {
+      signals.push(`${data.occurrences} transferencias detectadas`);
+    }
+    
+    if (data.identicalAmounts) {
+      signals.push('Montos idénticos en todas las transferencias');
+    }
+    
+    if (data.progressiveAmounts) {
+      signals.push('Incremento progresivo artificial de precios');
+    }
+    
+    if (data.sameLastName) {
+      signals.push('Posible parentesco (mismo apellido)');
+    }
+    
+    if (data.monthsDuration && data.monthsDuration < 12) {
+      signals.push(`Patrón en ${data.monthsDuration} meses`);
+    }
+    
+    return signals;
   }
 
   /**
@@ -1094,7 +1413,7 @@ class SequenceAnalyzer {
         const first = sequential[i];
         
         // Buscar si el RFC inicial reaparece como receptor
-        for (let j = i + 2; j < sequential.length; j++) {
+        for (let j = i + 2; j < Math.min(sequential.length, i + 10); j++) {
           const last = sequential[j];
           
           if (first.rfcEmisor === last.rfcReceptor) {
@@ -1112,7 +1431,7 @@ class SequenceAnalyzer {
                 if (daysDiff < 30) {
                   const cycleRFCs = [];
                   for (let k = i; k <= j; k++) {
-                    if (sequential[k]) {
+                    if (sequential[k] && sequential[k].rfcEmisor) {
                       cycleRFCs.push(sequential[k].rfcEmisor);
                     }
                   }
@@ -1121,12 +1440,12 @@ class SequenceAnalyzer {
                   }
                   
                   triangulations.push({
-                    cycle: cycleRFCs,
+                    cycle: [...new Set(cycleRFCs)],
                     positions: sequential.slice(i, j + 1).map(c => c.position).filter(p => p !== null),
                     startDate: startDoc.fecha,
                     endDate: endDoc.fecha,
                     daysDuration: Math.round(daysDiff),
-                    severity: daysDiff < 15 ? 'critical' : 'high'
+                    severity: daysDiff < 7 ? 'critical' : daysDiff < 15 ? 'high' : 'medium'
                   });
                 }
               }

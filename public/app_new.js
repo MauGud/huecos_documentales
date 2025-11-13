@@ -205,6 +205,12 @@ async function fetchExpediente() {
             }
             
             showAnalysisSection();
+            
+            // Ejecutar análisis automáticamente
+            console.log('→ Ejecutando análisis automático...');
+            setTimeout(() => {
+                analyzeSequence();
+            }, 500);
         } else {
             showError(data.message || 'Error al obtener el expediente');
         }
@@ -242,7 +248,12 @@ async function analyzeSequence() {
         // Mostrar loading
         showLoading('Analizando secuencia de propiedad...');
         hideError();
-        document.getElementById('analysisResults').style.display = 'none';
+        
+        // Asegurar que el contenedor de resultados esté preparado (oculto mientras carga)
+        const resultsDiv = document.getElementById('analysisResults');
+        if (resultsDiv) {
+            resultsDiv.style.display = 'none';
+        }
 
         console.log('→ Enviando petición a /api/analyze-sequence...');
         const requestBody = {
@@ -314,149 +325,20 @@ function displayExpedienteCompleto(data) {
     const container = document.getElementById('extractedData');
     
     let html = `
-        <h2>📦 Expediente Completo</h2>
-        
-        <div style="margin: 0 32px 24px 32px;">
-            <span class="document-type-badge" style="background: linear-gradient(135deg, #895ddc 0%, #a78bfa 100%); color: white; padding: 8px 16px; font-size: 12px;">
-                Búsqueda: Expediente completo
-            </span>
-        </div>
-        
-        <div class="info-grid">
-            <div class="info-card">
-                <h3>Vehicle ID</h3>
-                <p style="font-size: 14px; word-break: break-all;">${data.data.vehicle_id}</p>
-            </div>
-            ${data.data.vin ? `
-                <div class="info-card">
-                    <h3>VIN</h3>
-                    <p style="font-size: 18px;">${data.data.vin}</p>
-                </div>
-            ` : ''}
-            <div class="info-card">
-                <h3>Total Documentos</h3>
-                <p>${data.data.total_files}</p>
-            </div>
-            <div class="info-card">
-                <h3>Facturas</h3>
-                <p>${data.data.invoices.length}</p>
-            </div>
-            <div class="info-card">
-                <h3>Refacturas</h3>
-                <p>${data.data.reinvoices ? data.data.reinvoices.length : 0}</p>
-            </div>
-            <div class="info-card">
-                <h3>Endosos</h3>
-                <p>${data.data.other_documents.filter(d => d.document_type === 'endorsement').length}</p>
-            </div>
-            <div class="info-card">
-                <h3>Otros</h3>
-                <p>${data.data.other_documents.filter(d => d.document_type !== 'endorsement').length}</p>
-            </div>
+        <div style="padding: 20px; background: #f8f9fa; border-radius: 8px; margin-bottom: 20px;">
+            <h3 style="margin: 0 0 10px 0; color: #2c3e50;">✅ Expediente Cargado</h3>
+            <p style="margin: 5px 0; color: #666;">
+                <strong>Total de archivos:</strong> ${data.data.total_files || 0}
+            </p>
+            <p style="margin: 5px 0; color: #666;">
+                <strong>VIN:</strong> ${data.data.vin || 'No disponible'}
+            </p>
+            <p style="margin: 10px 0 0 0; font-size: 14px; color: #28a745;">
+                🔄 Analizando secuencia automáticamente...
+            </p>
         </div>
     `;
     
-    // Combinar facturas y refacturas para mostrarlas juntas
-    const allInvoiceTypes = [
-        ...data.data.invoices.map(inv => ({...inv, displayType: 'Factura'})),
-        ...(data.data.reinvoices || []).map(reinv => ({...reinv, displayType: 'Refactura'}))
-    ];
-
-    // Ordenar por fecha si está disponible
-    allInvoiceTypes.sort((a, b) => {
-        const dateA = a.created_at ? new Date(a.created_at) : new Date(0);
-        const dateB = b.created_at ? new Date(b.created_at) : new Date(0);
-        return dateA - dateB;
-    });
-
-    if (allInvoiceTypes.length > 0) {
-        html += '<div class="document-section"><h3>📄 Facturas y Refacturas</h3>';
-        allInvoiceTypes.forEach((doc, index) => {
-            const icon = doc.displayType === 'Factura' ? '📄' : '🔄';
-            html += `
-                <div class="document-card">
-                    <h4>${icon} ${doc.displayType} ${index + 1}</h4>
-                    <div class="document-preview">
-                        ${doc.ocr && doc.ocr.rfc_emisor ? `
-                            <p><strong>RFC Emisor:</strong> ${doc.ocr.rfc_emisor}</p>
-                            <p><strong>Nombre Emisor:</strong> ${doc.ocr.nombre_emisor || 'N/A'}</p>
-                            <p><strong>RFC Receptor:</strong> ${doc.ocr.rfc_receptor || 'N/A'}</p>
-                            <p><strong>Nombre Receptor:</strong> ${doc.ocr.nombre_receptor || 'N/A'}</p>
-                            <p><strong>Fecha:</strong> ${doc.ocr.fecha_factura || doc.ocr.fecha_refactura || doc.ocr.fecha_hora_emision || 'N/A'}</p>
-                            <p><strong>Total:</strong> $${doc.ocr.total || 'N/A'}</p>
-                            ${doc.ocr.usado_nuevo ? `<p><strong>Usado/Nuevo:</strong> ${doc.ocr.usado_nuevo}</p>` : ''}
-                        ` : '<p class="no-data">Sin datos OCR</p>'}
-                    </div>
-                    <details class="json-details">
-                        <summary>Ver JSON Completo</summary>
-                        <pre>${JSON.stringify(doc, null, 2)}</pre>
-                    </details>
-                </div>
-            `;
-        });
-        html += '</div>';
-    } else {
-        html += '<p class="no-data">No se encontraron facturas ni refacturas.</p>';
-    }
-
-    // Mostrar endosos si existen
-    const endorsements = data.data.other_documents.filter(d => d.document_type === 'endorsement');
-    if (endorsements.length > 0) {
-        html += '<div class="document-section"><h3>📋 Endosos</h3>';
-        endorsements.forEach((doc, index) => {
-            html += `
-                <div class="document-card">
-                    <h4>📋 Endoso ${index + 1}</h4>
-                    <div class="document-preview">
-                        ${doc.ocr && doc.ocr.rfc_endosante ? `
-                            <p><strong>RFC Endosante:</strong> ${doc.ocr.rfc_endosante}</p>
-                            <p><strong>Nombre Endosante:</strong> ${doc.ocr.nombre_endosante || 'N/A'}</p>
-                            <p><strong>RFC Endosatario:</strong> ${doc.ocr.rfc_endosatario || 'N/A'}</p>
-                            <p><strong>Nombre Endosatario:</strong> ${doc.ocr.nombre_endosatario || 'N/A'}</p>
-                            <p><strong>Fecha:</strong> ${doc.ocr.fecha_endoso || doc.ocr.fecha_hora_endoso || 'N/A'}</p>
-                        ` : '<p class="no-data">Sin datos OCR</p>'}
-                    </div>
-                    <details class="json-details">
-                        <summary>Ver JSON Completo</summary>
-                        <pre>${JSON.stringify(doc, null, 2)}</pre>
-                    </details>
-                </div>
-            `;
-        });
-        html += '</div>';
-    }
-
-    // Mostrar otros documentos
-    const otherDocs = data.data.other_documents.filter(d => d.document_type !== 'endorsement');
-    if (otherDocs.length > 0) {
-        html += '<div class="document-section"><h3>📁 Otros Documentos</h3>';
-        otherDocs.forEach((doc, index) => {
-            html += `
-                <div class="document-card">
-                    <h4>📁 ${doc.document_type} ${index + 1}</h4>
-                    <div class="document-preview">
-                        <p><strong>Tipo:</strong> ${doc.document_type}</p>
-                        <p><strong>Fecha de creación:</strong> ${new Date(doc.created_at).toLocaleString('es-MX')}</p>
-                        ${doc.ocr ? `<p><strong>OCR:</strong> Disponible</p>` : '<p class="no-data">Sin datos OCR</p>'}
-                    </div>
-                    <details class="json-details">
-                        <summary>Ver JSON Completo</summary>
-                        <pre>${JSON.stringify(doc, null, 2)}</pre>
-                    </details>
-                </div>
-            `;
-        });
-        html += '</div>';
-    }
-
-    // JSON completo del expediente
-    html += `
-        <details class="json-details">
-            <summary>📦 Expediente Completo (JSON RAW)</summary>
-            <pre>${JSON.stringify(data.raw_expediente, null, 2)}</pre>
-        </details>
-    `;
-
     container.innerHTML = html;
     document.getElementById('extractedData').style.display = 'block';
 }
