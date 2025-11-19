@@ -577,3 +577,8 @@ FIN DEL CONTEXTO
 
 Este bloque contiene TODO el contexto necesario para entender, modificar o extender el proyecto. La lógica principal está en src/api/sequenceAnalyzer.js, específicamente en analyzeOwnershipSequence() que ejecuta los 8 pasos descritos arriba. El algoritmo construye la cadena de propiedad validando continuidad de RFCs (receptor de N debe ser emisor de N+1), detecta huecos cuando esta continuidad se rompe, identifica retornos válidos cuando un RFC recupera un vehículo que ya tuvo, y maneja endosos y refacturas como transferencias válidas que no se consideran gaps.
 
+
+
+
+
+
