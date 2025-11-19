@@ -1296,3 +1296,924 @@ main {
         font-size: 30px;
     }
 }
+
+/* ============================================================================ */
+/* ESTILOS PARA TARJETAS DE CIRCULACIÓN Y RESUMEN EJECUTIVO - NUEVO */
+/* ============================================================================ */
+
+/* Resumen Ejecutivo */
+.summary-section {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 2rem;
+    border-radius: 12px;
+    margin: 2rem 32px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+}
+
+.summary-section h2 {
+    background: none;
+    color: white;
+    padding: 0;
+    margin: 0 0 1.5rem 0;
+    font-size: 24px;
+}
+
+.risk-level {
+    display: inline-block;
+    padding: 0.5rem 1.5rem;
+    border-radius: 25px;
+    font-size: 1.1rem;
+    font-weight: bold;
+    margin: 1rem 0;
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.risk-level.risk-bajo {
+    background: rgba(16, 185, 129, 0.3);
+}
+
+.risk-level.risk-medio {
+    background: rgba(245, 158, 11, 0.3);
+}
+
+.risk-level.risk-alto {
+    background: rgba(239, 68, 68, 0.3);
+}
+
+.risk-level.risk-critico {
+    background: rgba(220, 38, 38, 0.3);
+    animation: pulse 2s infinite;
+}
+
+.summary-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1rem;
+    margin: 1.5rem 0;
+}
+
+.stat-card {
+    background: rgba(255, 255, 255, 0.2);
+    padding: 1rem;
+    border-radius: 8px;
+    text-align: center;
+}
+
+.stat-label {
+    font-size: 0.9rem;
+    opacity: 0.9;
+    margin-bottom: 0.5rem;
+}
+
+.stat-value {
+    font-size: 2rem;
+    font-weight: bold;
+    color: white;
+}
+
+.summary-details {
+    background: rgba(255, 255, 255, 0.1);
+    padding: 1.5rem;
+    border-radius: 8px;
+    margin-top: 1rem;
+}
+
+.summary-details h3 {
+    margin-bottom: 1rem;
+    color: white;
+}
+
+.detail-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.75rem 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.detail-row:last-child {
+    border-bottom: none;
+}
+
+.recommendations-section {
+    margin-top: 2rem;
+}
+
+.recommendations-section h3 {
+    color: white;
+    margin-bottom: 1rem;
+}
+
+.recommendation {
+    background: rgba(255, 255, 255, 0.1);
+    padding: 1rem;
+    border-radius: 8px;
+    margin-bottom: 1rem;
+    border-left: 4px solid;
+}
+
+.recommendation.critica {
+    border-left-color: #dc2626;
+}
+
+.recommendation.alta {
+    border-left-color: #ef4444;
+}
+
+.recommendation.media {
+    border-left-color: #f59e0b;
+}
+
+.recommendation.baja {
+    border-left-color: #10b981;
+}
+
+.rec-header {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 0.5rem;
+}
+
+.rec-priority, .rec-type {
+    font-size: 0.8rem;
+    padding: 0.25rem 0.75rem;
+    border-radius: 15px;
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.rec-message {
+    font-weight: bold;
+    margin-bottom: 0.5rem;
+}
+
+.rec-actions {
+    margin-left: 1.5rem;
+    margin-top: 0.5rem;
+    list-style: disc;
+}
+
+.rec-actions li {
+    margin-bottom: 0.25rem;
+}
+
+/* Sección de Tarjetas */
+.tarjetas-section {
+    background: white;
+    padding: 2rem;
+    border-radius: 12px;
+    margin: 2rem 32px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.tarjetas-section h2 {
+    background: none;
+    color: var(--text-dark);
+    padding: 0;
+    margin: 0 0 1.5rem 0;
+    font-size: 22px;
+}
+
+.tarjetas-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1.5rem;
+    margin: 1.5rem 0;
+}
+
+.tarjetas-gaps {
+    margin: 2rem 0;
+}
+
+.tarjetas-gaps h3 {
+    color: var(--text-dark);
+    margin-bottom: 1rem;
+}
+
+.gap-alert.critica {
+    background: #fee2e2;
+    border-left-color: #dc2626;
+}
+
+.gap-type {
+    font-weight: bold;
+    color: #92400e;
+    margin-bottom: 0.5rem;
+}
+
+.gap-description {
+    margin-bottom: 0.75rem;
+}
+
+.gap-details {
+    background: rgba(255, 255, 255, 0.5);
+    padding: 0.75rem;
+    border-radius: 4px;
+    margin-bottom: 0.75rem;
+    font-size: 0.9rem;
+}
+
+.gap-recommendation {
+    font-style: italic;
+    color: #059669;
+    font-size: 0.9rem;
+}
+
+.tarjetas-detalle {
+    margin: 2rem 0;
+}
+
+.tarjetas-detalle h3 {
+    color: var(--text-dark);
+    margin-bottom: 1rem;
+}
+
+.tarjetas-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+    gap: 1.5rem;
+    margin-top: 1rem;
+}
+
+.tarjeta-card {
+    border: 2px solid #e5e7eb;
+    border-radius: 8px;
+    overflow: hidden;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.tarjeta-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+}
+
+.tarjeta-card.vigente {
+    border-color: #10b981;
+}
+
+.tarjeta-card.vencida {
+    border-color: #ef4444;
+}
+
+.tarjeta-header {
+    background: #f9fafb;
+    padding: 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 2px solid #e5e7eb;
+}
+
+.tarjeta-estado {
+    font-weight: bold;
+    color: #6b7280;
+    font-size: 0.9rem;
+}
+
+.tarjeta-status {
+    padding: 0.25rem 0.75rem;
+    border-radius: 15px;
+    font-size: 0.8rem;
+    font-weight: bold;
+}
+
+.status-vigente {
+    background: #d1fae5;
+    color: #065f46;
+}
+
+.status-vencida {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.tarjeta-body {
+    padding: 1rem;
+}
+
+.tarjeta-field {
+    margin-bottom: 0.75rem;
+    font-size: 0.9rem;
+}
+
+.tarjeta-field strong {
+    color: #374151;
+}
+
+.tarjeta-description {
+    background: #f3f4f6;
+    padding: 0.75rem;
+    border-radius: 4px;
+    margin-top: 1rem;
+    font-size: 0.85rem;
+    color: #4b5563;
+}
+
+.tarjeta-alert {
+    background: #fef3c7;
+    color: #92400e;
+    padding: 0.5rem;
+    border-radius: 4px;
+    margin-top: 0.5rem;
+    font-size: 0.85rem;
+    font-weight: bold;
+}
+
+.tarjeta-warning {
+    background: #fee2e2;
+    color: #991b1b;
+    padding: 0.5rem;
+    border-radius: 4px;
+    margin-top: 0.5rem;
+    font-size: 0.85rem;
+}
+
+.tarjetas-vencidas {
+    margin: 2rem 0;
+}
+
+.tarjetas-vencidas h3 {
+    color: var(--text-dark);
+    margin-bottom: 1rem;
+}
+
+.tarjetas-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+}
+
+.tarjetas-table thead {
+    background: #f9fafb;
+}
+
+.tarjetas-table th {
+    padding: 1rem;
+    text-align: left;
+    font-weight: 600;
+    color: #374151;
+    border-bottom: 2px solid #e5e7eb;
+}
+
+.tarjetas-table td {
+    padding: 1rem;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.tarjetas-table tbody tr:hover {
+    background: #f9fafb;
+}
+
+.bajas-section {
+    background: #fef3c7;
+    padding: 1rem;
+    border-radius: 8px;
+    margin: 2rem 0;
+    border-left: 4px solid #f59e0b;
+}
+
+.bajas-section h3 {
+    color: var(--text-dark);
+    margin-bottom: 1rem;
+}
+
+.baja-info {
+    font-size: 0.9rem;
+    line-height: 1.8;
+}
+
+/* Validación Cruzada */
+.cross-validation-section {
+    background: white;
+    padding: 2rem;
+    border-radius: 12px;
+    margin: 2rem 32px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.cross-validation-section h2 {
+    background: none;
+    color: var(--text-dark);
+    padding: 0;
+    margin: 0 0 1.5rem 0;
+    font-size: 22px;
+}
+
+.cross-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1.5rem;
+    margin: 1.5rem 0;
+}
+
+.inconsistencias-list {
+    margin-top: 2rem;
+}
+
+.inconsistencias-list h3 {
+    color: var(--text-dark);
+    margin-bottom: 1rem;
+}
+
+.inconsistencia {
+    border: 2px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+}
+
+.inconsistencia.critica {
+    border-color: #dc2626;
+    background: #fee2e2;
+}
+
+.inconsistencia.alta {
+    border-color: #ef4444;
+    background: #fef2f2;
+}
+
+.inconsistencia.media {
+    border-color: #f59e0b;
+    background: #fffbeb;
+}
+
+.inconsistencia.baja {
+    border-color: #6b7280;
+    background: #f9fafb;
+}
+
+.inc-header {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 0.75rem;
+}
+
+.inc-gravedad, .inc-tipo {
+    font-size: 0.8rem;
+    padding: 0.25rem 0.75rem;
+    border-radius: 15px;
+    font-weight: bold;
+}
+
+.inc-gravedad {
+    background: rgba(0, 0, 0, 0.1);
+}
+
+.inc-tipo {
+    background: rgba(0, 0, 0, 0.05);
+}
+
+.inc-description {
+    font-weight: 500;
+    margin-bottom: 0.75rem;
+}
+
+.inc-field {
+    font-size: 0.9rem;
+    margin: 0.5rem 0;
+    color: #4b5563;
+}
+
+.inc-recommendation {
+    margin-top: 0.75rem;
+    padding: 0.75rem;
+    background: rgba(5, 150, 105, 0.1);
+    border-radius: 4px;
+    font-size: 0.9rem;
+    color: #065f46;
+    font-style: italic;
+}
+
+/* Utilidades de texto */
+.text-success {
+    color: #10b981 !important;
+}
+
+.text-warning {
+    color: #f59e0b !important;
+}
+
+.text-danger {
+    color: #ef4444 !important;
+}
+
+/* ============================================================================ */
+/* ESTILOS PARA VALIDACIÓN DE PROPIEDAD Y ANÁLISIS DE VIGENCIAS - NUEVO */
+/* ============================================================================ */
+
+/* Validación de Propiedad */
+.property-validation-section {
+    background: white;
+    padding: 2rem;
+    border-radius: 12px;
+    margin: 2rem 32px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.property-validation-section h2 {
+    background: none;
+    color: var(--text-dark);
+    padding: 0;
+    margin: 0 0 1.5rem 0;
+    font-size: 22px;
+}
+
+.property-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1.5rem;
+    margin: 1.5rem 0;
+}
+
+.property-table-container {
+    margin-top: 2rem;
+    overflow-x: auto;
+}
+
+.property-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+}
+
+.property-table thead {
+    background: #f9fafb;
+}
+
+.property-table th {
+    padding: 1rem;
+    text-align: left;
+    font-weight: 600;
+    color: #374151;
+    border-bottom: 2px solid #e5e7eb;
+}
+
+.property-table td {
+    padding: 1rem;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.property-table tbody tr:hover {
+    background: #f9fafb;
+}
+
+.property-table code {
+    background: #f3f4f6;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.9rem;
+}
+
+/* Análisis de Vigencias */
+.vigencia-analysis-section {
+    background: white;
+    padding: 2rem;
+    border-radius: 12px;
+    margin: 2rem 32px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.vigencia-analysis-section h2 {
+    background: none;
+    color: var(--text-dark);
+    padding: 0;
+    margin: 0 0 1.5rem 0;
+    font-size: 22px;
+}
+
+.vigencia-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1.5rem;
+    margin: 1.5rem 0;
+}
+
+.vigencia-gaps-list {
+    margin-top: 2rem;
+}
+
+.vigencia-gaps-list h3 {
+    color: var(--text-dark);
+    margin-bottom: 1rem;
+}
+
+.vigencia-gap {
+    border: 2px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    background: #f9fafb;
+}
+
+.vigencia-gap.critica {
+    border-color: #dc2626;
+    background: #fee2e2;
+}
+
+.vigencia-gap.alta {
+    border-color: #ef4444;
+    background: #fef2f2;
+}
+
+.vigencia-gap.media {
+    border-color: #f59e0b;
+    background: #fffbeb;
+}
+
+.vigencia-gap.baja {
+    border-color: #6b7280;
+    background: #f9fafb;
+}
+
+.gap-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+.gap-gravedad {
+    font-size: 0.8rem;
+    padding: 0.25rem 0.75rem;
+    border-radius: 15px;
+    font-weight: bold;
+    background: rgba(0, 0, 0, 0.1);
+}
+
+.gap-details {
+    font-size: 0.9rem;
+}
+
+.gap-field {
+    margin: 0.5rem 0;
+    color: #4b5563;
+}
+
+.no-gaps {
+    padding: 1rem;
+    background: #d1fae5;
+    color: #065f46;
+    border-radius: 8px;
+    text-align: center;
+    font-weight: 500;
+}
+
+/* Clases de cobertura */
+.coverage-ok {
+    color: #10b981;
+    font-weight: bold;
+}
+
+.coverage-gap {
+    color: #ef4444;
+    font-weight: bold;
+}
+
+/* Badge de propietario actual */
+.propietario-actual-badge {
+    display: inline-block;
+    background: #3b82f6;
+    color: white;
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: bold;
+    margin-left: 0.5rem;
+}
+
+/* Estados de vigencia */
+.vigencia-ok {
+    color: #10b981;
+    font-weight: bold;
+}
+
+.vigencia-vencida {
+    color: #ef4444;
+    font-weight: bold;
+}
+
+/* Fila de propietario actual sin vigencia */
+.propietario-actual-sin-vigencia {
+    background: #fee2e2 !important;
+    border-left: 4px solid #dc2626;
+}
+
+.propietario-actual-sin-vigencia:hover {
+    background: #fecaca !important;
+}
+
+/* Alerta para propietario actual sin vigencia */
+.alert-propietario-actual {
+    background: #fee2e2;
+    border: 2px solid #dc2626;
+    border-radius: 8px;
+    padding: 1rem;
+    margin: 1rem 0;
+    color: #991b1b;
+    font-weight: 600;
+}
+
+/* ============================================================================ */
+/* ESTILOS PARA TIMELINE CRONOLÓGICO UNIFICADO - NUEVO */
+/* ============================================================================ */
+
+.timeline-section {
+    margin: 2rem 32px;
+    background: white;
+    padding: 2rem;
+    border-radius: 12px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.timeline-section h3 {
+    background: none;
+    color: var(--text-dark);
+    padding: 0;
+    margin: 0 0 1.5rem 0;
+    font-size: 22px;
+}
+
+.timeline-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.timeline-card {
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    padding: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    transition: all 0.2s;
+}
+
+.timeline-card:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    transform: translateX(4px);
+}
+
+.timeline-card.fiscal {
+    border-left: 3px solid #3b82f6;
+}
+
+.timeline-card.fiscal.retorno {
+    border-left-color: #3b82f6;
+    background: #eff6ff;
+}
+
+.timeline-card.tarjeta {
+    border-left: 3px solid #10b981;
+}
+
+.timeline-card.ruptura {
+    border-left-color: #ef4444;
+    background: #fef2f2;
+}
+
+.card-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 200px;
+}
+
+.card-icon {
+    font-size: 1.2rem;
+}
+
+.card-type {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #374151;
+}
+
+.card-date {
+    font-size: 0.75rem;
+    color: #6b7280;
+    margin-left: auto;
+}
+
+.card-body-mini {
+    flex: 1;
+    font-size: 0.85rem;
+}
+
+.transfer-mini, .owner-mini {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.25rem;
+}
+
+.name-mini {
+    font-weight: 500;
+    color: #111827;
+}
+
+.arrow-mini {
+    color: #9ca3af;
+    font-weight: bold;
+}
+
+.rfc-mini {
+    font-size: 0.75rem;
+    color: #6b7280;
+    font-family: monospace;
+}
+
+.details-mini {
+    display: flex;
+    gap: 1rem;
+    font-size: 0.75rem;
+    color: #6b7280;
+}
+
+.card-position, .card-badge {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    white-space: nowrap;
+    font-weight: 600;
+}
+
+.card-position {
+    background: #f3f4f6;
+    color: #374151;
+}
+
+.card-badge.vigente {
+    background: #d1fae5;
+    color: #065f46;
+}
+
+.card-badge.vencida {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.card-badge.ruptura {
+    background: #fecaca;
+    color: #991b1b;
+}
+
+.card-alert {
+    font-size: 0.75rem;
+    color: #d97706;
+    margin-top: 0.25rem;
+    font-weight: 500;
+}
+
+.timeline-connector {
+    width: 2px;
+    height: 0.5rem;
+    background: #e5e7eb;
+    margin-left: 1rem;
+}
+
+/* Responsive para nuevas secciones */
+@media (max-width: 768px) {
+    .summary-section,
+    .tarjetas-section,
+    .cross-validation-section,
+    .property-validation-section,
+    .vigencia-analysis-section,
+    .timeline-section {
+        margin: 1rem 16px;
+        padding: 1.5rem;
+    }
+    
+    .tarjetas-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .summary-stats,
+    .tarjetas-summary,
+    .cross-summary,
+    .property-summary,
+    .vigencia-summary {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .property-table-container {
+        overflow-x: scroll;
+    }
+    
+    .timeline-card {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .card-header {
+        min-width: 100%;
+        width: 100%;
+    }
+    
+    .card-body-mini {
+        width: 100%;
+    }
+}

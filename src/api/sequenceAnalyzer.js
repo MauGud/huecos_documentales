@@ -1,3 +1,7 @@
+const { ESTADOS_REGLAS, MODELOS_VIGENCIA } = require('./estadosReglasVigencia');
+const { verificarVigenciaTarjeta } = require('./vigenciaValidator');
+const { validatePropertyOwnership, detectVigenciaGaps } = require('./tarjetasValidator');
+
 class SequenceAnalyzer {
   /**
    * Analiza la secuencia de propiedad vehicular con lógica avanzada
@@ -66,6 +70,79 @@ class SequenceAnalyzer {
 
     // 8. Detectar huecos, retornos y anomalías
     const gapAnalysis = this.detectSequenceGapsAdvanced(ownershipChain);
+
+    // ========== ANÁLISIS DE TARJETAS DE CIRCULACIÓN (NUEVO) ==========
+    let tarjetasAnalysis = null;
+    let crossValidation = null;
+    let executiveSummary = null;
+    let propertyValidation = null;
+    let vigenciaAnalysis = null;
+
+    try {
+      // Separar tarjetas y bajas
+      const tarjetasCirculacion = allFiles.filter(file => 
+        file.document_type === 'vehicle_certificate' &&
+        file.ocr && typeof file.ocr === 'object'
+      );
+      
+      const bajasVehiculares = allFiles.filter(file => 
+        file.document_type === 'vehicle_cancellation' &&
+        file.ocr && typeof file.ocr === 'object'
+      );
+
+      if (tarjetasCirculacion.length > 0 || bajasVehiculares.length > 0) {
+        // Normalizar tarjetas y bajas
+        const normalizedTarjetas = tarjetasCirculacion.map(doc => this.normalizeDocument(doc)).filter(d => d);
+        const normalizedBajas = bajasVehiculares.map(doc => this.normalizeDocument(doc)).filter(d => d);
+        
+        // Ordenar por fecha
+        const sortedTarjetas = this.sortDocumentsByDate(normalizedTarjetas);
+        const sortedBajas = this.sortDocumentsByDate(normalizedBajas);
+        
+        // ========== NUEVAS VALIDACIONES DE TARJETAS ==========
+        // Validación 1: Validación de Propiedad (RFC/nombre)
+        try {
+          propertyValidation = validatePropertyOwnership(ownershipChain, sortedTarjetas);
+          console.log('✓ Validación de propiedad completada');
+        } catch (error) {
+          console.error('❌ Error en validación de propiedad:', error);
+        }
+        
+        // Validación 2: Detección de Gaps de Vigencia
+        try {
+          vigenciaAnalysis = detectVigenciaGaps(sortedTarjetas, ESTADOS_REGLAS);
+          console.log('✓ Análisis de vigencias completado');
+        } catch (error) {
+          console.error('❌ Error en análisis de vigencias:', error);
+        }
+
+        // Análisis de cobertura de tarjetas
+        tarjetasAnalysis = this.analyzeTarjetasCirculacionCoverage(
+          ownershipChain,
+          sortedTarjetas,
+          sortedBajas
+        );
+
+        // Validación cruzada
+        crossValidation = this.analyzeCrossDocumentConsistency(
+          ownershipChain,
+          sortedTarjetas,
+          referenceVIN
+        );
+
+        // Resumen ejecutivo
+        executiveSummary = this.generateExecutiveSummary(
+          gapAnalysis,
+          tarjetasAnalysis,
+          crossValidation
+        );
+
+        console.log('✓ Análisis de tarjetas de circulación completado');
+      }
+    } catch (error) {
+      console.error('❌ Error en análisis de tarjetas:', error.message);
+      // Continuar sin fallar el análisis principal
+    }
 
     // ========== EJECUTAR NUEVOS ANÁLISIS (NO ROMPE NADA) ==========
     let integrityAnalysis = null;
@@ -172,6 +249,8 @@ class SequenceAnalyzer {
       totalInvoices: documents.filter(d => d.document_type === 'invoice').length,
       totalReinvoices: documents.filter(d => d.document_type === 'reinvoice').length,
       totalEndorsements: documents.filter(d => d.document_type === 'endorsement').length,
+      totalTarjetasCirculacion: allFiles.filter(d => d.document_type === 'vehicle_certificate').length,
+      totalBajasVehiculares: allFiles.filter(d => d.document_type === 'vehicle_cancellation').length,
       originDocument: {
         fileId: originDocument.fileId,
         fecha: originDocument.fecha,
@@ -218,6 +297,30 @@ class SequenceAnalyzer {
     }
     if (duplicateDetection) {
       response.duplicateDetection = duplicateDetection;
+    }
+
+    // Agregar análisis de tarjetas (NUEVO)
+    if (tarjetasAnalysis) {
+      response.tarjetasAnalysis = tarjetasAnalysis;
+      console.log('✓ tarjetasAnalysis agregado al response');
+    }
+    if (crossValidation) {
+      response.crossValidation = crossValidation;
+      console.log('✓ crossValidation agregado al response');
+    }
+    if (executiveSummary) {
+      response.executiveSummary = executiveSummary;
+      console.log('✓ executiveSummary agregado al response');
+    }
+    
+    // Agregar nuevas validaciones de tarjetas
+    if (propertyValidation) {
+      response.propertyValidation = propertyValidation;
+      console.log('✓ propertyValidation agregado al response');
+    }
+    if (vigenciaAnalysis) {
+      response.vigenciaAnalysis = vigenciaAnalysis;
+      console.log('✓ vigenciaAnalysis agregado al response');
     }
 
     console.log('✓ analyzeOwnershipSequence completado exitosamente');
@@ -357,7 +460,200 @@ class SequenceAnalyzer {
       };
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // TARJETAS DE CIRCULACIÓN (vehicle_certificate) - NUEVO
+    // ═══════════════════════════════════════════════════════════════
+    const isVehicleCertificate = doc.document_type === 'vehicle_certificate';
+
+    if (isVehicleCertificate) {
+      const normalized = {
+        fileId: doc.file_id,
+        documentType: 'vehicle_certificate',
+        createdAt: doc.created_at || null,
+        url: doc.url || null,
+        ocr: ocr, // Preservar OCR original
+        
+        // Datos pivote
+        nombre: ocr.nombre || null,
+        rfc: ocr.rfc || null,
+        vin: ocr.niv_vin_numero_serie || ocr.vin || null,
+        fechaExpedicion: ocr.fecha_expedicion || null,
+        fechaVigencia: ocr.fecha_vigencia || this.calculateVigencia(ocr),
+        
+        // Transferencia (TC no es documento de transferencia)
+        emisorRFC: null,
+        emisorNombre: null,
+        receptorRFC: ocr.rfc || null, // El propietario es el "receptor"
+        receptorNombre: ocr.nombre || null,
+        
+        // Metadatos específicos de TC
+        numeroDocumento: ocr.folio_electronico || null,
+        total: null,
+        usadoNuevo: ocr.origen_vehiculo || null, // "NACIONAL" o "IMPORTADO"
+        
+        vehiculo: {
+          marca: ocr.vehiculo_marca || ocr.marca_vehiculo || null,
+          modelo: ocr.vehiculo_submarca || ocr.modelo_vehiculo || null,
+          submarca: ocr.vehiculo_submarca || null,
+          ano: ocr.vehiculo_modelo_ano || ocr.ano_vehiculo || null,
+          motor: ocr.numero_motor || null,
+          placa: ocr.placa_matricula || ocr.placa || null,
+          claveVehicular: ocr.clave_vehicular || null,
+          color: ocr.color || null,
+          clase_tipo: ocr.clase_tipo || null
+        },
+        
+        estadoEmisor: ocr.gobierno_entidad_federativa || ocr.entidad_estado || null,
+        repuve: ocr.repuve || null,
+        folioElectronico: ocr.folio_electronico || null,
+        
+        // Compatibilidad con sistema existente
+        fecha: ocr.fecha_expedicion || null
+      };
+      
+      return normalized;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // BAJAS VEHICULARES (vehicle_cancellation) - NUEVO
+    // ═══════════════════════════════════════════════════════════════
+    const isVehicleCancellation = doc.document_type === 'vehicle_cancellation';
+
+    if (isVehicleCancellation) {
+      return {
+        fileId: doc.file_id,
+        documentType: 'vehicle_cancellation',
+        createdAt: doc.created_at || null,
+        url: doc.url || null,
+        ocr: ocr,
+        
+        // Datos pivote
+        nombre: null, // Bajas no tienen nombre del propietario
+        rfc: null,
+        vin: ocr.niv_vin_numero_serie || ocr.vin || null,
+        fechaExpedicion: ocr.fecha_tramite_concluido || ocr.fecha || null,
+        fechaVigencia: null, // Bajas no tienen vigencia
+        
+        // Transferencia
+        emisorRFC: null,
+        emisorNombre: null,
+        receptorRFC: null,
+        receptorNombre: null,
+        
+        // Metadatos
+        numeroDocumento: ocr.numero_factura || null, // Referencia a factura original
+        total: ocr.total_importe_factura || null,
+        usadoNuevo: null,
+        
+        vehiculo: {
+          marca: ocr.marca_vehiculo || null,
+          modelo: ocr.version_vehiculo || null,
+          submarca: null,
+          ano: ocr.vehiculo_modelo_ano || null,
+          motor: ocr.motor_vehiculo || null,
+          placa: ocr.placa_anterior || null,
+          claveVehicular: ocr.clave_vehicular || null,
+          color: ocr.color || null
+        },
+        
+        estadoEmisor: ocr.entidad_estado || ocr.gobierno_entidad_federativa || null,
+        repuve: null,
+        folioElectronico: null,
+        
+        // Compatibilidad
+        fecha: ocr.fecha_tramite_concluido || ocr.fecha || null
+      };
+    }
+
     return null;
+  }
+
+  /**
+   * Calcula fecha de vigencia cuando no está explícita
+   * Usa reglas de estado para determinar vencimiento
+   */
+  calculateVigencia(ocr) {
+    const estado = ocr.gobierno_entidad_federativa || ocr.entidad_estado;
+    const fechaExp = this.parseDate(ocr.fecha_expedicion);
+    
+    if (!fechaExp || !estado) return null;
+    
+    const reglas = ESTADOS_REGLAS[estado.toUpperCase()];
+    if (!reglas) return null;
+    
+    const modeloVigencia = reglas.modelo_vigencia;
+    const vigenciaAnios = reglas.vigencia_años;
+    
+    if (!modeloVigencia) return null;
+    
+    switch (modeloVigencia) {
+      case MODELOS_VIGENCIA.ANUAL:
+        return new Date(fechaExp.getFullYear(), 11, 31);
+      
+      case MODELOS_VIGENCIA.BIENAL:
+        return this.addYears(fechaExp, 2);
+      
+      case MODELOS_VIGENCIA.TRIENAL:
+        return this.addYears(fechaExp, 3);
+      
+      case MODELOS_VIGENCIA.INDEFINIDA:
+        return null;
+      
+      case MODELOS_VIGENCIA.SIN_TEMPORAL:
+        return null;
+      
+      case MODELOS_VIGENCIA.CAMBIO_TEMPORAL:
+        return this.calculateVigenciaEspecial(estado, fechaExp, ocr);
+      
+      default:
+        return null;
+    }
+  }
+
+  /**
+   * Calcula vigencia especial para estados con cambio temporal
+   */
+  calculateVigenciaEspecial(estado, fechaExp, ocr) {
+    const estadoUpper = estado.toUpperCase();
+    
+    if (estadoUpper === 'CHIAPAS') {
+      const fechaCambio = new Date('2018-01-01');
+      if (fechaExp < fechaCambio) {
+        return null; // Permanente
+      } else {
+        return new Date(fechaExp.getFullYear(), 11, 31); // Anual
+      }
+    }
+    
+    if (estadoUpper === 'YUCATAN') {
+      // Verificar si hay prórroga activa
+      const reglas = ESTADOS_REGLAS['YUCATAN'];
+      const fechaExtension = new Date(reglas.vigencia_extendida_hasta);
+      const hoy = new Date();
+      
+      if (hoy <= fechaExtension) {
+        return fechaExtension;
+      }
+      
+      return this.addYears(fechaExp, 3); // Trienal base
+    }
+    
+    return null;
+  }
+
+  /**
+   * Funciones auxiliares de fecha
+   */
+  addYears(date, years) {
+    const result = new Date(date);
+    result.setFullYear(result.getFullYear() + years);
+    return result;
+  }
+
+  addDays(date, days) {
+    const result = new Date(date);
+    result.setDate(result.getDate() + days);
+    return result;
   }
 
   /**
@@ -2364,6 +2660,597 @@ class SequenceAnalyzer {
     } catch (error) {
       return 0;
     }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // ANÁLISIS DE TARJETAS DE CIRCULACIÓN - NUEVO
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * ANÁLISIS DE COBERTURA DE TARJETAS DE CIRCULACIÓN
+   * Detecta períodos sin tarjeta vigente y valida vigencias por estado
+   */
+  analyzeTarjetasCirculacionCoverage(ownershipChain, tarjetas, bajas) {
+    // Validar vigencia de cada tarjeta
+    const tarjetasConValidacion = tarjetas.map(tarjeta => {
+      const validacion = verificarVigenciaTarjeta(tarjeta, new Date());
+      
+      return {
+        ...tarjeta,
+        validacion_vigencia: validacion
+      };
+    });
+    
+    // Construir línea temporal de propietarios (desde facturas)
+    const propietariosTimeline = this.buildPropietariosTimeline(ownershipChain);
+    
+    // Construir línea temporal de tarjetas
+    const tarjetasTimeline = this.buildTarjetasTimeline(tarjetasConValidacion);
+    
+    // Detectar huecos: períodos donde hay propietario pero sin tarjeta vigente
+    const huecosCobertura = this.detectCoberturaGaps(propietariosTimeline, tarjetasTimeline);
+    
+    // Detectar tarjetas vencidas
+    const tarjetasVencidas = tarjetasConValidacion.filter(t => 
+      t.validacion_vigencia.vigente === false
+    );
+    
+    // Detectar tarjetas con huecos documentales de estado
+    const tarjetasConHuecoEstado = tarjetasConValidacion.filter(t =>
+      t.validacion_vigencia.hueco_documental === true
+    );
+    
+    // Detectar bajas vehiculares
+    const tieneBaja = bajas.length > 0;
+    const fechaUltimaBaja = tieneBaja ? bajas[bajas.length - 1].fechaExpedicion : null;
+    
+    return {
+      total_tarjetas: tarjetas.length,
+      tarjetas_vigentes: tarjetasConValidacion.filter(t => t.validacion_vigencia.vigente === true).length,
+      tarjetas_vencidas: tarjetasVencidas.length,
+      tarjetas_con_hueco_estado: tarjetasConHuecoEstado.length,
+      
+      has_gaps: huecosCobertura.length > 0,
+      total_gaps: huecosCobertura.length,
+      gaps: huecosCobertura,
+      
+      tarjetas_detalle: tarjetasConValidacion.map(t => ({
+        file_id: t.fileId,
+        nombre: t.nombre,
+        rfc: t.rfc,
+        estado_emisor: t.estadoEmisor,
+        fecha_expedicion: t.fechaExpedicion,
+        fecha_vigencia: t.fechaVigencia,
+        folio: t.folioElectronico,
+        placa: t.vehiculo?.placa,
+        repuve: t.repuve,
+        vigente: t.validacion_vigencia.vigente,
+        razon_vigencia: t.validacion_vigencia.razon,
+        tipo_validacion: t.validacion_vigencia.tipo_validacion,
+        vencimiento: t.validacion_vigencia.vencimiento,
+        alerta: t.validacion_vigencia.alerta || null,
+        hueco_documental: t.validacion_vigencia.hueco_documental || false
+      })),
+      
+      tarjetas_vencidas_detalle: tarjetasVencidas.map(t => ({
+        file_id: t.fileId,
+        nombre: t.nombre,
+        rfc: t.rfc,
+        estado_emisor: t.estadoEmisor,
+        fecha_expedicion: t.fechaExpedicion,
+        fecha_vencimiento: t.validacion_vigencia.vencimiento,
+        dias_vencida: t.validacion_vigencia.dias_vencida,
+        razon: t.validacion_vigencia.razon
+      })),
+      
+      bajas_vehiculares: {
+        tiene_baja: tieneBaja,
+        total_bajas: bajas.length,
+        fecha_ultima_baja: fechaUltimaBaja,
+        bajas_detalle: bajas.map(b => ({
+          file_id: b.fileId,
+          fecha: b.fechaExpedicion,
+          estado: b.estadoEmisor,
+          placa_anterior: b.vehiculo?.placa
+        }))
+      }
+    };
+  }
+
+  /**
+   * Construye línea temporal de propietarios desde cadena de facturas
+   */
+  buildPropietariosTimeline(ownershipChain) {
+    const timeline = [];
+    const sequential = ownershipChain.filter(inv => inv.position !== null);
+    
+    for (let i = 0; i < sequential.length; i++) {
+      const current = sequential[i];
+      const next = sequential[i + 1];
+      
+      const propietario = {
+        position: current.position,
+        rfc: current.rfcReceptor,
+        nombre: current.nombreReceptor,
+        fecha_inicio: this.parseDate(current.fecha),
+        fecha_fin: next ? this.parseDate(next.fecha) : null, // null = propietario actual
+        documento_origen: current.fileId,
+        type: current.type
+      };
+      
+      timeline.push(propietario);
+    }
+    
+    return timeline;
+  }
+
+  /**
+   * Construye línea temporal de tarjetas con períodos de vigencia
+   */
+  buildTarjetasTimeline(tarjetasConValidacion) {
+    return tarjetasConValidacion.map(tarjeta => {
+      const fechaInicio = this.parseDate(tarjeta.fechaExpedicion);
+      const fechaFin = tarjeta.validacion_vigencia.vencimiento 
+        ? this.parseDate(tarjeta.validacion_vigencia.vencimiento)
+        : null; // null = vigencia indefinida
+      
+      return {
+        file_id: tarjeta.fileId,
+        rfc: tarjeta.rfc,
+        nombre: tarjeta.nombre,
+        fecha_inicio: fechaInicio,
+        fecha_fin: fechaFin,
+        vigente: tarjeta.validacion_vigencia.vigente,
+        estado: tarjeta.estadoEmisor,
+        modelo_vigencia: tarjeta.validacion_vigencia.tipo_validacion
+      };
+    });
+  }
+
+  /**
+   * Detecta períodos donde hay propietario sin tarjeta vigente
+   */
+  detectCoberturaGaps(propietariosTimeline, tarjetasTimeline) {
+    const gaps = [];
+    
+    for (const propietario of propietariosTimeline) {
+      // Buscar tarjetas que cubran el período de este propietario
+      const tarjetasCubren = tarjetasTimeline.filter(tarjeta => {
+        // Mismo RFC
+        if (tarjeta.rfc !== propietario.rfc) return false;
+        
+        // Tarjeta cubre inicio de propiedad
+        const cubreInicio = tarjeta.fecha_inicio <= propietario.fecha_inicio;
+        
+        // Tarjeta cubre fin de propiedad (o no tiene fin)
+        const cubreFin = !propietario.fecha_fin || 
+                         !tarjeta.fecha_fin ||
+                         tarjeta.fecha_fin >= propietario.fecha_fin;
+        
+        // Tarjeta vigente
+        const vigente = tarjeta.vigente;
+        
+        return cubreInicio && cubreFin && vigente;
+      });
+      
+      if (tarjetasCubren.length === 0) {
+        // Este propietario NO tiene tarjeta vigente que cubra su período
+        gaps.push({
+          tipo: 'PROPIETARIO_SIN_TARJETA_VIGENTE',
+          gravedad: 'CRITICA',
+          propietario: {
+            rfc: propietario.rfc,
+            nombre: propietario.nombre,
+            position: propietario.position,
+            fecha_inicio_propiedad: propietario.fecha_inicio,
+            fecha_fin_propiedad: propietario.fecha_fin
+          },
+          descripcion: `${propietario.nombre} (RFC: ${propietario.rfc}) no tiene tarjeta de circulación vigente para su período de propiedad`,
+          recomendacion: 'Obtener tarjeta de circulación correspondiente al estado y período de propiedad'
+        });
+      }
+    }
+    
+    return gaps;
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // VALIDACIÓN CRUZADA DE CONSISTENCIA - NUEVO
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * ANÁLISIS DE CONSISTENCIA CRUZADA ENTRE FACTURAS Y TARJETAS
+   * Valida que los datos pivote coincidan entre documentos
+   */
+  analyzeCrossDocumentConsistency(ownershipChain, tarjetas, referenceVIN) {
+    const inconsistencias = [];
+    
+    // VALIDACIÓN 1: RFC en facturas debe coincidir con RFC en tarjetas
+    for (const propietario of ownershipChain.filter(p => p.position !== null)) {
+      const tarjetasDelRFC = tarjetas.filter(t => t.rfc === propietario.rfcReceptor);
+      
+      if (tarjetasDelRFC.length > 0) {
+        // Validar que el nombre sea consistente
+        for (const tarjeta of tarjetasDelRFC) {
+          const nombreFactura = this.normalizeString(propietario.nombreReceptor);
+          const nombreTarjeta = this.normalizeString(tarjeta.nombre);
+          
+          const similitud = this.calculateStringSimilarity(nombreFactura, nombreTarjeta);
+          
+          if (similitud < 0.7) { // 70% de similitud mínima
+            inconsistencias.push({
+              tipo: 'NOMBRE_INCONSISTENTE',
+              gravedad: 'MEDIA',
+              rfc: propietario.rfcReceptor,
+              nombre_en_factura: propietario.nombreReceptor,
+              nombre_en_tarjeta: tarjeta.nombre,
+              similitud: similitud,
+              documento_factura: propietario.fileId,
+              documento_tarjeta: tarjeta.fileId,
+              descripcion: `Posible error de OCR: nombres diferentes para mismo RFC ${propietario.rfcReceptor}`,
+              recomendacion: 'Revisar manualmente los documentos para confirmar identidad'
+            });
+          }
+        }
+      }
+    }
+    
+    // VALIDACIÓN 2: VIN debe ser consistente en todas las tarjetas
+    const vinsEnTarjetas = tarjetas
+      .map(t => t.vin)
+      .filter(v => v);
+    
+    const vinsUnicos = [...new Set(vinsEnTarjetas)];
+    
+    if (vinsUnicos.length > 1) {
+      inconsistencias.push({
+        tipo: 'VIN_MULTIPLE_EN_TARJETAS',
+        gravedad: 'CRITICA',
+        vins_encontrados: vinsUnicos,
+        vin_referencia: referenceVIN,
+        descripcion: `Se encontraron ${vinsUnicos.length} VINs diferentes en las tarjetas de circulación`,
+        recomendacion: 'CRÍTICO: Validar que todas las tarjetas correspondan al mismo vehículo'
+      });
+    }
+    
+    // VALIDACIÓN 3: Fechas de tarjetas deberían estar dentro del período de propiedad
+    for (const tarjeta of tarjetas) {
+      const propietario = ownershipChain.find(p => p.rfcReceptor === tarjeta.rfc);
+      
+      if (propietario) {
+        const fechaTarjeta = this.parseDate(tarjeta.fechaExpedicion);
+        const fechaInicioProp = this.parseDate(propietario.fecha);
+        const fechaFinProp = propietario.fechaFin ? this.parseDate(propietario.fechaFin) : null;
+        
+        // Tarjeta expedida ANTES de que la persona adquiriera el vehículo
+        if (fechaTarjeta && fechaInicioProp && fechaTarjeta < fechaInicioProp) {
+          const diasDiff = Math.floor((fechaInicioProp - fechaTarjeta) / (1000 * 60 * 60 * 24));
+          inconsistencias.push({
+            tipo: 'TARJETA_ANTES_DE_PROPIEDAD',
+            gravedad: 'ALTA',
+            rfc: tarjeta.rfc,
+            nombre: tarjeta.nombre,
+            fecha_tarjeta: fechaTarjeta,
+            fecha_adquisicion: fechaInicioProp,
+            dias_diferencia: diasDiff,
+            documento_tarjeta: tarjeta.fileId,
+            documento_factura: propietario.fileId,
+            descripcion: `Tarjeta expedida ${diasDiff} días ANTES de que ${tarjeta.nombre} adquiriera el vehículo`,
+            recomendacion: 'Verificar fechas de expedición de tarjeta y factura. Posible error de OCR o documento incorrecto'
+          });
+        }
+        
+        // Tarjeta expedida DESPUÉS de que la persona transfirió el vehículo
+        if (fechaFinProp && fechaTarjeta && fechaTarjeta > fechaFinProp) {
+          const diasDiff = Math.floor((fechaTarjeta - fechaFinProp) / (1000 * 60 * 60 * 24));
+          inconsistencias.push({
+            tipo: 'TARJETA_DESPUES_DE_PROPIEDAD',
+            gravedad: 'MEDIA',
+            rfc: tarjeta.rfc,
+            nombre: tarjeta.nombre,
+            fecha_tarjeta: fechaTarjeta,
+            fecha_transferencia: fechaFinProp,
+            dias_diferencia: diasDiff,
+            documento_tarjeta: tarjeta.fileId,
+            descripcion: `Tarjeta expedida ${diasDiff} días DESPUÉS de que ${tarjeta.nombre} transfirió el vehículo`,
+            recomendacion: 'Posible renovación tardía o error en fechas. Validar período de propiedad'
+          });
+        }
+      }
+    }
+    
+    // VALIDACIÓN 4: Estados de tarjetas deberían ser consistentes o explicables
+    const estadosUnicos = [...new Set(tarjetas.map(t => t.estadoEmisor).filter(e => e))];
+    
+    if (estadosUnicos.length > 2) {
+      inconsistencias.push({
+        tipo: 'MULTIPLES_ESTADOS_EMISORES',
+        gravedad: 'BAJA',
+        estados: estadosUnicos,
+        total_estados: estadosUnicos.length,
+        descripcion: `Vehículo ha sido emplacado en ${estadosUnicos.length} estados diferentes: ${estadosUnicos.join(', ')}`,
+        recomendacion: 'Validar que los cambios de estado sean legales y estén documentados correctamente'
+      });
+    }
+    
+    return {
+      has_inconsistencies: inconsistencias.length > 0,
+      total_inconsistencies: inconsistencias.length,
+      inconsistencias_criticas: inconsistencias.filter(i => i.gravedad === 'CRITICA').length,
+      inconsistencias_altas: inconsistencias.filter(i => i.gravedad === 'ALTA').length,
+      inconsistencias_medias: inconsistencias.filter(i => i.gravedad === 'MEDIA').length,
+      inconsistencias_bajas: inconsistencias.filter(i => i.gravedad === 'BAJA').length,
+      inconsistencias: inconsistencias
+    };
+  }
+
+  /**
+   * Normaliza strings para comparación
+   */
+  normalizeString(str) {
+    if (!str) return '';
+    return str
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '') // Quitar acentos
+      .replace(/[^a-z0-9\s]/g, '') // Solo alfanuméricos
+      .trim();
+  }
+
+  /**
+   * Calcula similitud entre dos strings (Levenshtein simplificado)
+   */
+  calculateStringSimilarity(str1, str2) {
+    const s1 = this.normalizeString(str1);
+    const s2 = this.normalizeString(str2);
+    
+    if (s1 === s2) return 1.0;
+    if (!s1 || !s2) return 0.0;
+    
+    const longer = s1.length > s2.length ? s1 : s2;
+    const shorter = s1.length > s2.length ? s2 : s1;
+    
+    if (longer.length === 0) return 1.0;
+    
+    const editDistance = this.levenshteinDistance(longer, shorter);
+    return (longer.length - editDistance) / longer.length;
+  }
+
+  levenshteinDistance(str1, str2) {
+    const matrix = [];
+    
+    for (let i = 0; i <= str2.length; i++) {
+      matrix[i] = [i];
+    }
+    
+    for (let j = 0; j <= str1.length; j++) {
+      matrix[0][j] = j;
+    }
+    
+    for (let i = 1; i <= str2.length; i++) {
+      for (let j = 1; j <= str1.length; j++) {
+        if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
+          matrix[i][j] = matrix[i - 1][j - 1];
+        } else {
+          matrix[i][j] = Math.min(
+            matrix[i - 1][j - 1] + 1,
+            matrix[i][j - 1] + 1,
+            matrix[i - 1][j] + 1
+          );
+        }
+      }
+    }
+    
+    return matrix[str2.length][str1.length];
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // RESUMEN EJECUTIVO - NUEVO
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * GENERA RESUMEN EJECUTIVO INTEGRADO
+   * Combina resultados de facturas + tarjetas + validación cruzada
+   */
+  generateExecutiveSummary(sequenceAnalysis, tarjetasAnalysis, crossValidation) {
+    const criticidad = {
+      CRITICA: 0,
+      ALTA: 0,
+      MEDIA: 0,
+      BAJA: 0
+    };
+    
+    // Contar issues de secuencia de facturas
+    if (sequenceAnalysis.hasGaps) {
+      sequenceAnalysis.gaps.forEach(gap => {
+        if (gap.gapPosition && gap.gapPosition.includes('Documentos sin conexión')) {
+          criticidad.ALTA++;
+        } else {
+          criticidad.MEDIA++;
+        }
+      });
+    }
+    
+    // Contar issues de tarjetas
+    if (tarjetasAnalysis && tarjetasAnalysis.has_gaps) {
+      tarjetasAnalysis.gaps.forEach(gap => {
+        if (gap.gravedad) {
+          criticidad[gap.gravedad]++;
+        }
+      });
+    }
+    
+    // Contar inconsistencias
+    if (crossValidation && crossValidation.has_inconsistencies) {
+      crossValidation.inconsistencias.forEach(inc => {
+        criticidad[inc.gravedad]++;
+      });
+    }
+    
+    // Determinar nivel de riesgo global
+    let nivelRiesgo = 'BAJO';
+    if (criticidad.CRITICA > 0) {
+      nivelRiesgo = 'CRITICO';
+    } else if (criticidad.ALTA > 1 || (tarjetasAnalysis && tarjetasAnalysis.tarjetas_vencidas > 2)) {
+      nivelRiesgo = 'ALTO';
+    } else if (criticidad.ALTA > 0 || criticidad.MEDIA > 2) {
+      nivelRiesgo = 'MEDIO';
+    }
+    
+    return {
+      nivel_riesgo: nivelRiesgo,
+      
+      total_issues: criticidad.CRITICA + criticidad.ALTA + criticidad.MEDIA + criticidad.BAJA,
+      issues_criticos: criticidad.CRITICA,
+      issues_altos: criticidad.ALTA,
+      issues_medios: criticidad.MEDIA,
+      issues_bajos: criticidad.BAJA,
+      
+      secuencia_facturas: {
+        completa: sequenceAnalysis.isComplete,
+        con_huecos: sequenceAnalysis.hasGaps,
+        con_retornos: sequenceAnalysis.hasRetornos,
+        total_gaps: sequenceAnalysis.totalGaps,
+        total_retornos: sequenceAnalysis.totalRetornos
+      },
+      
+      tarjetas_circulacion: {
+        total: tarjetasAnalysis ? tarjetasAnalysis.total_tarjetas : 0,
+        vigentes: tarjetasAnalysis ? tarjetasAnalysis.tarjetas_vigentes : 0,
+        vencidas: tarjetasAnalysis ? tarjetasAnalysis.tarjetas_vencidas : 0,
+        con_huecos_cobertura: tarjetasAnalysis ? tarjetasAnalysis.total_gaps : 0,
+        tiene_baja_vehicular: tarjetasAnalysis ? tarjetasAnalysis.bajas_vehiculares.tiene_baja : false
+      },
+      
+      consistencia_cruzada: {
+        tiene_inconsistencias: crossValidation ? crossValidation.has_inconsistencies : false,
+        total_inconsistencias: crossValidation ? crossValidation.total_inconsistencies : 0
+      },
+      
+      recomendaciones: this.generateRecommendations(
+        nivelRiesgo,
+        sequenceAnalysis,
+        tarjetasAnalysis,
+        crossValidation
+      )
+    };
+  }
+
+  generateRecommendations(nivelRiesgo, sequenceAnalysis, tarjetasAnalysis, crossValidation) {
+    const recomendaciones = [];
+    
+    // Recomendaciones por nivel de riesgo
+    if (nivelRiesgo === 'CRITICO') {
+      recomendaciones.push({
+        prioridad: 'CRITICA',
+        tipo: 'ACCION_INMEDIATA',
+        mensaje: 'Se detectaron problemas críticos que requieren atención inmediata',
+        acciones: [
+          'Revisar manualmente todos los documentos marcados como críticos',
+          'Validar la integridad del VIN en todos los documentos',
+          'Contactar a las autoridades correspondientes para aclarar inconsistencias'
+        ]
+      });
+    }
+    
+    // Recomendaciones por huecos en facturas
+    if (sequenceAnalysis.hasGaps && sequenceAnalysis.totalGaps > 0) {
+      recomendaciones.push({
+        prioridad: 'ALTA',
+        tipo: 'DOCUMENTOS_FALTANTES',
+        mensaje: `Se detectaron ${sequenceAnalysis.totalGaps} hueco(s) en la secuencia de facturas`,
+        acciones: [
+          'Obtener facturas, refacturas o endosos faltantes que conecten la cadena',
+          'Validar con propietarios anteriores la documentación de transferencias',
+          'Revisar archivos físicos del expediente para localizar documentos no digitalizados'
+        ]
+      });
+    }
+    
+    // Recomendaciones por tarjetas vencidas
+    if (tarjetasAnalysis && tarjetasAnalysis.tarjetas_vencidas > 0) {
+      recomendaciones.push({
+        prioridad: 'ALTA',
+        tipo: 'RENOVACION_TARJETAS',
+        mensaje: `${tarjetasAnalysis.tarjetas_vencidas} tarjeta(s) de circulación vencida(s)`,
+        acciones: [
+          'Renovar tarjetas vencidas según reglas del estado emisor',
+          'Verificar estado de refrendos anuales si aplica',
+          'Validar si hay programas de regularización vigentes'
+        ]
+      });
+    }
+    
+    // Recomendaciones por falta de cobertura de tarjetas
+    if (tarjetasAnalysis && tarjetasAnalysis.has_gaps && tarjetasAnalysis.total_gaps > 0) {
+      recomendaciones.push({
+        prioridad: 'ALTA',
+        tipo: 'COBERTURA_TARJETAS',
+        mensaje: `${tarjetasAnalysis.total_gaps} propietario(s) sin tarjeta de circulación vigente`,
+        acciones: [
+          'Obtener tarjetas de circulación para propietarios sin cobertura',
+          'Validar cambios de domicilio y emplacamientos correspondientes',
+          'Verificar que cada transferencia esté respaldada por documentos estatales'
+        ]
+      });
+    }
+    
+    // Recomendaciones por inconsistencias cruzadas
+    if (crossValidation && crossValidation.inconsistencias_criticas > 0) {
+      recomendaciones.push({
+        prioridad: 'CRITICA',
+        tipo: 'INCONSISTENCIAS_DATOS',
+        mensaje: `${crossValidation.inconsistencias_criticas} inconsistencia(s) crítica(s) entre documentos`,
+        acciones: [
+          'Revisar manualmente documentos con VIN o RFC inconsistentes',
+          'Validar con OCR alternativo o revisión manual',
+          'Corregir datos en sistema si se confirman errores de extracción'
+        ]
+      });
+    }
+    
+    if (crossValidation && crossValidation.inconsistencias_altas > 0) {
+      recomendaciones.push({
+        prioridad: 'ALTA',
+        tipo: 'VALIDACION_FECHAS',
+        mensaje: `${crossValidation.inconsistencias_altas} problema(s) con fechas de expedición`,
+        acciones: [
+          'Validar cronología de expedición de tarjetas vs. transferencias',
+          'Verificar si hay errores de OCR en fechas',
+          'Confirmar que tarjetas correspondan a los períodos correctos de propiedad'
+        ]
+      });
+    }
+    
+    // Recomendaciones por retornos
+    if (sequenceAnalysis.hasRetornos) {
+      recomendaciones.push({
+        prioridad: 'MEDIA',
+        tipo: 'VALIDACION_RETORNOS',
+        mensaje: `Se detectaron ${sequenceAnalysis.totalRetornos} retorno(s) válido(s)`,
+        acciones: [
+          'Validar que los retornos estén documentados correctamente',
+          'Verificar que existan tarjetas de circulación para cada período de propiedad del RFC retornado',
+          'Confirmar que no sean patrones sospechosos de intermediación'
+        ]
+      });
+    }
+    
+    // Recomendaciones si todo está bien
+    if (recomendaciones.length === 0) {
+      recomendaciones.push({
+        prioridad: 'BAJA',
+        tipo: 'MANTENIMIENTO',
+        mensaje: 'El expediente está completo y sin problemas críticos',
+        acciones: [
+          'Mantener documentación actualizada',
+          'Monitorear vencimientos de tarjetas según estado',
+          'Realizar auditorías periódicas de consistencia'
+        ]
+      });
+    }
+    
+    return recomendaciones;
   }
 }
 
