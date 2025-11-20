@@ -1416,6 +1416,11 @@ function createTimelineHTML(ownershipChain, propertyValidation, tarjetasAnalysis
                             <span class="name-mini">${doc.receptor || 'N/A'}</span>
                         </div>
                         <div class="details-mini">
+                            <span style="color: #895ddc; font-family: monospace; font-weight: 600;">${doc.emisorRFC || 'N/A'}</span>
+                            <span>→</span>
+                            <span style="color: #895ddc; font-family: monospace; font-weight: 600;">${doc.receptorRFC || 'N/A'}</span>
+                        </div>
+                        <div class="details-mini">
                             <span>${doc.numeroDoc || 'N/A'}</span>
                             ${doc.total ? `<span>$${formatCurrency(doc.total)}</span>` : ''}
                         </div>
