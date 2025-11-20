@@ -1439,7 +1439,9 @@ function createTimelineHTML(ownershipChain, propertyValidation, tarjetasAnalysis
                     <div class="card-body-mini">
                         <div class="owner-mini">
                             <span class="name-mini">${doc.propietario || 'N/A'}</span>
-                            <span class="rfc-mini">${doc.rfc || 'N/A'}</span>
+                        </div>
+                        <div class="details-mini">
+                            <span style="color: #895ddc; font-family: monospace; font-weight: 600;">${doc.rfc || 'N/A'}</span>
                         </div>
                         <div class="details-mini">
                             <span>${doc.estado || 'N/A'}</span>
