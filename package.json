@@ -4,7 +4,7 @@
   "description": "Analizador de secuencia de propiedad vehicular con API Nexcar",
   "main": "src/server.js",
   "engines": {
-    "node": "22.x",
+    "node": "18.x",
     "npm": ">=9.0.0"
   },
   "scripts": {
