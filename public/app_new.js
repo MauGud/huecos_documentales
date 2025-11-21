@@ -1443,9 +1443,7 @@ function createTimelineHTML(ownershipChain, propertyValidation, tarjetasAnalysis
                         <div class="details-mini">
                             <span>${doc.estado || 'N/A'}</span>
                             ${doc.placa ? `<span>Placa: ${doc.placa}</span>` : ''}
-                        </div>
-                        <div class="details-mini">
-                            <span style="color: #895ddc; font-family: monospace; font-weight: 600; font-size: 0.9rem;">RFC: ${doc.rfc || doc.rfcEmisor || doc.rfcReceptor || 'N/A'}</span>
+                            <span style="color: #895ddc; font-family: monospace; font-weight: 600;">RFC: ${doc.rfc || 'N/A'}</span>
                         </div>
                         ${!doc.tiene_coincidencia ? '<div class="card-alert">⚠️ Sin coincidencia en facturas</div>' : ''}
                         ${doc.alerta ? `<div class="card-alert">${doc.alerta}</div>` : ''}
