@@ -772,11 +772,6 @@ function displayAnalysisResults(data) {
         html += createCrossValidationHTML(data.crossValidation);
     }
     
-    // ===== NUEVO: VALIDACIÓN DE PROPIEDAD =====
-    if (data.propertyValidation && data.propertyValidation.total_propietarios > 0) {
-        html += createPropertyValidationHTML(data.propertyValidation);
-    }
-    
     // ===== NUEVO: ANÁLISIS DE VIGENCIAS =====
     if (data.vigenciaAnalysis && data.vigenciaAnalysis.gaps_detectados > 0) {
         html += createVigenciaAnalysisHTML(data.vigenciaAnalysis);
@@ -1100,116 +1095,6 @@ function createInconsistenciasHTML(inconsistencias) {
         <div class="inconsistencias-list">
             <h3>⚠️ Inconsistencias Detectadas</h3>
             ${incsHTML}
-        </div>
-    `;
-}
-
-function createPropertyValidationHTML(propertyValidation) {
-    if (!propertyValidation || !propertyValidation.detalle || propertyValidation.detalle.length === 0) return '';
-    
-    const rowsHTML = propertyValidation.detalle.map(item => {
-        const tieneTarjetaClass = item.tiene_tarjeta ? 'coverage-ok' : 'coverage-gap';
-        const tieneTarjetaIcon = item.tiene_tarjeta ? '✓' : '✗';
-        const similitudHTML = item.similitud_nombre !== null 
-            ? `${(item.similitud_nombre * 100).toFixed(1)}%`
-            : 'N/A';
-        const similitudClass = item.similitud_nombre !== null && item.similitud_nombre < 0.7 
-            ? 'text-warning' 
-            : '';
-        
-        // Para propietario actual: mostrar badge y vigencia
-        const actualBadge = item.es_propietario_actual 
-            ? '<span class="propietario-actual-badge">ACTUAL</span>' 
-            : '';
-        
-        // Para propietario actual: mostrar estado de vigencia
-        let vigenciaHTML = '';
-        if (item.es_propietario_actual) {
-            if (item.tiene_tarjeta) {
-                if (item.tarjeta_vigente_hoy === true) {
-                    vigenciaHTML = '<span class="vigencia-ok">✓ Vigente</span>';
-                } else if (item.tarjeta_vigente_hoy === false) {
-                    vigenciaHTML = '<span class="vigencia-vencida">✗ Vencida</span>';
-                } else {
-                    vigenciaHTML = '<span class="text-warning">? No calculable</span>';
-                }
-            } else {
-                vigenciaHTML = '<span class="vigencia-vencida">Sin tarjeta</span>';
-            }
-        } else {
-            // Para históricos: no mostrar vigencia
-            vigenciaHTML = '-';
-        }
-        
-        // Resaltar fila si es propietario actual sin vigencia
-        const rowClass = item.es_propietario_actual && item.tarjeta_vigente_hoy === false 
-            ? 'propietario-actual-sin-vigencia' 
-            : '';
-        
-        return `
-            <tr class="${rowClass}">
-                <td>
-                    ${item.nombre_factura || 'N/A'}
-                    ${actualBadge}
-                </td>
-                <td><code>${item.rfc || 'N/A'}</code></td>
-                <td class="${tieneTarjetaClass}">${tieneTarjetaIcon}</td>
-                <td class="${similitudClass}">${similitudHTML}</td>
-                <td>${vigenciaHTML}</td>
-                <td>${item.estado || 'N/A'}</td>
-            </tr>
-        `;
-    }).join('');
-    
-    // Alerta si propietario actual sin vigencia
-    const alertaActual = propertyValidation.propietario_actual_sin_vigencia 
-        ? '<div class="alert-propietario-actual">⚠️ El propietario actual tiene una tarjeta vencida. Se requiere renovación.</div>'
-        : '';
-    
-    return `
-        <div class="property-validation-section">
-            <h2>🔍 Validación de Propiedad (Facturas vs Tarjetas)</h2>
-            
-            ${alertaActual}
-            
-            <div class="property-summary">
-                <div class="info-card">
-                    <div class="info-label">Total Propietarios</div>
-                    <div class="info-value">${propertyValidation.total_propietarios}</div>
-                </div>
-                <div class="info-card">
-                    <div class="info-label">Con Tarjeta</div>
-                    <div class="info-value text-success">${propertyValidation.propietarios_con_tarjeta}</div>
-                </div>
-                <div class="info-card">
-                    <div class="info-label">Sin Tarjeta</div>
-                    <div class="info-value ${propertyValidation.propietarios_sin_tarjeta > 0 ? 'text-warning' : 'text-success'}">${propertyValidation.propietarios_sin_tarjeta}</div>
-                </div>
-                <div class="info-card">
-                    <div class="info-label">Propietario Actual</div>
-                    <div class="info-value ${propertyValidation.propietario_actual_sin_vigencia ? 'text-danger' : 'text-success'}">
-                        ${propertyValidation.propietario_actual_sin_vigencia ? '✗ Sin Vigencia' : '✓ Vigente'}
-                    </div>
-                </div>
-            </div>
-            
-            <div class="property-table-container">
-                <table class="property-table">
-                    <thead>
-                        <tr>
-                            <th>Propietario</th>
-                            <th>RFC</th>
-                            <th>Tiene Tarjeta</th>
-                            <th>Coincidencia Nombre (%)</th>
-                            <th>Vigencia HOY</th>
-                            <th>Estado</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${rowsHTML}
-                    </tbody>
-                </table>
-            </div>
         </div>
     `;
 }
