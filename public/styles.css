@@ -1797,72 +1797,8 @@ main {
 }
 
 /* ============================================================================ */
-/* ESTILOS PARA VALIDACIÓN DE PROPIEDAD Y ANÁLISIS DE VIGENCIAS - NUEVO */
+/* ESTILOS PARA ANÁLISIS DE VIGENCIAS - NUEVO */
 /* ============================================================================ */
-
-/* Validación de Propiedad */
-.property-validation-section {
-    background: white;
-    padding: 2rem;
-    border-radius: 12px;
-    margin: 2rem 32px;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-}
-
-.property-validation-section h2 {
-    background: none;
-    color: var(--text-dark);
-    padding: 0;
-    margin: 0 0 1.5rem 0;
-    font-size: 22px;
-}
-
-.property-summary {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 1.5rem;
-    margin: 1.5rem 0;
-}
-
-.property-table-container {
-    margin-top: 2rem;
-    overflow-x: auto;
-}
-
-.property-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-top: 1rem;
-}
-
-.property-table thead {
-    background: #f9fafb;
-}
-
-.property-table th {
-    padding: 1rem;
-    text-align: left;
-    font-weight: 600;
-    color: #374151;
-    border-bottom: 2px solid #e5e7eb;
-}
-
-.property-table td {
-    padding: 1rem;
-    border-bottom: 1px solid #e5e7eb;
-}
-
-.property-table tbody tr:hover {
-    background: #f9fafb;
-}
-
-.property-table code {
-    background: #f3f4f6;
-    padding: 0.25rem 0.5rem;
-    border-radius: 4px;
-    font-family: 'Courier New', monospace;
-    font-size: 0.9rem;
-}
 
 /* Análisis de Vigencias */
 .vigencia-analysis-section {
@@ -1956,61 +1892,6 @@ main {
     border-radius: 8px;
     text-align: center;
     font-weight: 500;
-}
-
-/* Clases de cobertura */
-.coverage-ok {
-    color: #10b981;
-    font-weight: bold;
-}
-
-.coverage-gap {
-    color: #ef4444;
-    font-weight: bold;
-}
-
-/* Badge de propietario actual */
-.propietario-actual-badge {
-    display: inline-block;
-    background: #3b82f6;
-    color: white;
-    padding: 0.25rem 0.75rem;
-    border-radius: 12px;
-    font-size: 0.75rem;
-    font-weight: bold;
-    margin-left: 0.5rem;
-}
-
-/* Estados de vigencia */
-.vigencia-ok {
-    color: #10b981;
-    font-weight: bold;
-}
-
-.vigencia-vencida {
-    color: #ef4444;
-    font-weight: bold;
-}
-
-/* Fila de propietario actual sin vigencia */
-.propietario-actual-sin-vigencia {
-    background: #fee2e2 !important;
-    border-left: 4px solid #dc2626;
-}
-
-.propietario-actual-sin-vigencia:hover {
-    background: #fecaca !important;
-}
-
-/* Alerta para propietario actual sin vigencia */
-.alert-propietario-actual {
-    background: #fee2e2;
-    border: 2px solid #dc2626;
-    border-radius: 8px;
-    padding: 1rem;
-    margin: 1rem 0;
-    color: #991b1b;
-    font-weight: 600;
 }
 
 /* ============================================================================ */
