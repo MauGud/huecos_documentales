@@ -1,6 +1,6 @@
 const { ESTADOS_REGLAS, MODELOS_VIGENCIA } = require('./estadosReglasVigencia');
 const { verificarVigenciaTarjeta } = require('./vigenciaValidator');
-const { validatePropertyOwnership, detectVigenciaGaps } = require('./tarjetasValidator');
+const { detectVigenciaGaps } = require('./tarjetasValidator');
 
 class SequenceAnalyzer {
   /**
@@ -75,7 +75,6 @@ class SequenceAnalyzer {
     let tarjetasAnalysis = null;
     let crossValidation = null;
     let executiveSummary = null;
-    let propertyValidation = null;
     let vigenciaAnalysis = null;
 
     try {
@@ -99,16 +98,8 @@ class SequenceAnalyzer {
         const sortedTarjetas = this.sortDocumentsByDate(normalizedTarjetas);
         const sortedBajas = this.sortDocumentsByDate(normalizedBajas);
         
-        // ========== NUEVAS VALIDACIONES DE TARJETAS ==========
-        // Validación 1: Validación de Propiedad (RFC/nombre)
-        try {
-          propertyValidation = validatePropertyOwnership(ownershipChain, sortedTarjetas);
-          console.log('✓ Validación de propiedad completada');
-        } catch (error) {
-          console.error('❌ Error en validación de propiedad:', error);
-        }
-        
-        // Validación 2: Detección de Gaps de Vigencia
+        // ========== VALIDACIÓN DE TARJETAS ==========
+        // Detección de Gaps de Vigencia
         try {
           vigenciaAnalysis = detectVigenciaGaps(sortedTarjetas, ESTADOS_REGLAS);
           console.log('✓ Análisis de vigencias completado');
@@ -313,11 +304,7 @@ class SequenceAnalyzer {
       console.log('✓ executiveSummary agregado al response');
     }
     
-    // Agregar nuevas validaciones de tarjetas
-    if (propertyValidation) {
-      response.propertyValidation = propertyValidation;
-      console.log('✓ propertyValidation agregado al response');
-    }
+    // Agregar validaciones de tarjetas
     if (vigenciaAnalysis) {
       response.vigenciaAnalysis = vigenciaAnalysis;
       console.log('✓ vigenciaAnalysis agregado al response');
