@@ -1067,8 +1067,6 @@ function createCrossValidationHTML(crossValidation) {
                 <div class="info-value">${crossValidation.inconsistencias_medias}</div>
             </div>
         </div>
-        
-        ${createInconsistenciasHTML(crossValidation.inconsistencias)}
         </div>
     `;
 }
