@@ -134,6 +134,26 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
             </div>
           )}
 
+          {/* Vigencia para tarjetas de circulación */}
+          {document.type === 'tarjeta_circulacion' && (
+            (() => {
+              const fechaVigencia = document.metadata?.fecha_vigencia || document.metadata?.fechaVigencia;
+              if (fechaVigencia) {
+                const vigenciaDate = typeof fechaVigencia === 'string' ? new Date(fechaVigencia) : fechaVigencia;
+                const isVigente = !isNaN(vigenciaDate.getTime()) && vigenciaDate >= new Date();
+                return (
+                  <div className="flex justify-between">
+                    <span>Vigencia:</span>
+                    <span className={`font-medium ${isVigente ? 'text-success' : 'text-danger'}`}>
+                      {formatDate(vigenciaDate)}
+                    </span>
+                  </div>
+                );
+              }
+              return null;
+            })()
+          )}
+
           <div className="flex justify-between">
             <span>Propietario:</span>
             <span className="font-medium truncate ml-2" title={document.ownerName}>

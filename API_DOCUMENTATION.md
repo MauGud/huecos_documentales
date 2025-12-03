@@ -1,6 +1,6 @@
 # DOCUMENTACIÓN COMPLETA: API de Análisis de Huecos Documentales
 
-## 🔴 ⚠️ CAMBIOS REQUERIDOS - LEE PRIMERO ⚠️ 🔴
+## 🔴 ⚠️ CAMBIOS REQUERIDOS ⚠️ 🔴
 
 **IMPORTANTE:** Antes de comenzar, identifica y reemplaza los siguientes valores en TODOS los ejemplos de esta documentación:
 

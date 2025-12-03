@@ -446,6 +446,42 @@ function validatePropertyOwnership(ownershipChain, tarjetas) {
         tieneCoincidencia = similitudNombre >= 0.7;
       }
       
+      // ========== VALIDACIÓN DE RFC CON FACTURA MÁS RECIENTE ==========
+      // Buscar la factura más reciente antes de la fecha de expedición de la tarjeta
+      let rfcFacturaReciente = null;
+      let fechaFacturaReciente = null;
+      let rupturaRFC = false;
+      let razonRupturaRFC = null;
+      
+      const fechaExpedicionTarjeta = parseDate(tarjeta.fechaExpedicion);
+      
+      if (fechaExpedicionTarjeta && ownershipChain && ownershipChain.length > 0) {
+        // Filtrar facturas válidas (con posición) y ordenar por fecha descendente
+        const facturasValidas = ownershipChain
+          .filter(item => item.position !== null && item.fecha && item.rfcReceptor)
+          .map(item => ({
+            ...item,
+            fechaParsed: parseDate(item.fecha)
+          }))
+          .filter(item => item.fechaParsed && item.fechaParsed <= fechaExpedicionTarjeta)
+          .sort((a, b) => b.fechaParsed.getTime() - a.fechaParsed.getTime());
+        
+        if (facturasValidas.length > 0) {
+          const facturaReciente = facturasValidas[0];
+          rfcFacturaReciente = facturaReciente.rfcReceptor;
+          fechaFacturaReciente = facturaReciente.fecha;
+          
+          // Comparar RFC de tarjeta con RFC del receptor de la factura más reciente
+          const rfcTarjetaNormalizado = normalizeString(tarjeta.rfc);
+          const rfcFacturaNormalizado = normalizeString(rfcFacturaReciente);
+          
+          if (rfcTarjetaNormalizado !== rfcFacturaNormalizado) {
+            rupturaRFC = true;
+            razonRupturaRFC = `RFC de tarjeta (${tarjeta.rfc}) no coincide con RFC de factura más reciente (${rfcFacturaReciente})`;
+          }
+        }
+      }
+      
       // Calcular vigencia para esta tarjeta
       const vigenciaHoy = calculateVigenciaHoy(tarjeta, ESTADOS_REGLAS);
       
@@ -462,7 +498,11 @@ function validatePropertyOwnership(ownershipChain, tarjetas) {
         vigente: vigenciaHoy.vigente,
         razon_vigencia: vigenciaHoy.razon || null,
         tiene_coincidencia: tieneCoincidencia,
-        similitud_nombre: similitudNombre
+        similitud_nombre: similitudNombre,
+        ruptura_rfc: rupturaRFC,
+        razon_ruptura_rfc: razonRupturaRFC,
+        rfc_factura_reciente: rfcFacturaReciente,
+        fecha_factura_reciente: fechaFacturaReciente
       });
     }
   });

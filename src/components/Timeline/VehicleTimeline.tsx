@@ -121,7 +121,35 @@ export const VehicleTimeline: React.FC<VehicleTimelineProps> = ({
     return markers;
   };
 
-  // Agrupar documentos por tipo para los carriles
+  // Función para obtener la fecha correcta según el tipo de documento
+  const getDocumentDate = (doc: VehicleDocument): Date => {
+    // Para tarjetas de circulación: usar fecha_expedicion del metadata si existe
+    if (doc.type === 'tarjeta_circulacion') {
+      const fechaExpedicion = doc.metadata?.fecha_expedicion || doc.metadata?.fechaExpedicion;
+      if (fechaExpedicion) {
+        const date = typeof fechaExpedicion === 'string' ? new Date(fechaExpedicion) : fechaExpedicion;
+        if (!isNaN(date.getTime())) {
+          return date;
+        }
+      }
+    }
+    
+    // Para facturas: usar fecha_hora_emision del metadata si existe
+    if (doc.type === 'factura_origen' || doc.type === 'factura_endosada') {
+      const fechaEmision = doc.metadata?.fecha_hora_emision || doc.metadata?.fechaEmision;
+      if (fechaEmision) {
+        const date = typeof fechaEmision === 'string' ? new Date(fechaEmision) : fechaEmision;
+        if (!isNaN(date.getTime())) {
+          return date;
+        }
+      }
+    }
+    
+    // Por defecto: usar issueDate
+    return doc.issueDate;
+  };
+
+  // Agrupar documentos por tipo para los carriles y ordenarlos por fecha correcta
   const documentsByType = filteredDocuments.reduce((acc, doc) => {
     if (!acc[doc.type]) {
       acc[doc.type] = [];
@@ -129,6 +157,15 @@ export const VehicleTimeline: React.FC<VehicleTimelineProps> = ({
     acc[doc.type].push(doc);
     return acc;
   }, {} as Record<string, VehicleDocument[]>);
+
+  // Ordenar documentos dentro de cada tipo por fecha correcta
+  Object.keys(documentsByType).forEach(type => {
+    documentsByType[type].sort((a, b) => {
+      const dateA = getDocumentDate(a);
+      const dateB = getDocumentDate(b);
+      return dateA.getTime() - dateB.getTime();
+    });
+  });
 
   // Generar carriles de documentos
   const generateDocumentLanes = () => {
@@ -156,7 +193,9 @@ export const VehicleTimeline: React.FC<VehicleTimelineProps> = ({
             
             {/* Documentos presentes */}
             {filters.showPresent && docs.map((doc, docIndex) => {
-              const position = getPositionInTimeline(doc.issueDate);
+              // Usar la fecha correcta según el tipo de documento
+              const docDate = getDocumentDate(doc);
+              const position = getPositionInTimeline(docDate);
               return (
                 <motion.div
                   key={doc.id}
