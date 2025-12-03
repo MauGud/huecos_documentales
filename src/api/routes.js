@@ -246,6 +246,126 @@ router.post('/analyze-sequence', async (req, res) => {
 });
 
 /**
+ * POST /api/analyze-vehicle
+ * Endpoint independiente que recibe vehicle_id o internal_id y devuelve el JSON completo del análisis
+ */
+router.post('/analyze-vehicle', async (req, res) => {
+  console.log('╔════════════════════════════════════════╗');
+  console.log('║  POST /api/analyze-vehicle INICIO     ║');
+  console.log('╚════════════════════════════════════════╝');
+
+  try {
+    const { vehicle_id, internal_id } = req.body;
+
+    // Validar que se proporcione al menos uno de los IDs
+    if (!vehicle_id && !internal_id) {
+      return res.status(400).json({
+        success: false,
+        error: 'MISSING_PARAMETER',
+        message: 'vehicle_id or internal_id required'
+      });
+    }
+
+    // Usar vehicle_id si está presente, sino usar internal_id
+    const vehicleId = vehicle_id || internal_id;
+    console.log(`📋 Vehicle ID recibido: ${vehicleId}`);
+
+    // Autenticar si es necesario
+    if (!nexcarClient.isTokenValid()) {
+      console.log('🔐 Token inválido, autenticando...');
+      const authResult = await nexcarClient.authenticate(NEXCAR_EMAIL, NEXCAR_PASSWORD);
+      
+      if (!authResult.success) {
+        return res.status(401).json({
+          success: false,
+          error: 'AUTH_ERROR',
+          message: 'Error de autenticación con API Nexcar',
+          details: authResult.error
+        });
+      }
+      console.log('✅ Autenticación exitosa');
+    }
+
+    // Obtener expediente usando el vehicle_id
+    console.log(`📡 Obteniendo expediente para vehicle_id: ${vehicleId}`);
+    const expedienteResult = await nexcarClient.getExpediente(vehicleId);
+    
+    if (!expedienteResult.success) {
+      // Manejar error 404 específicamente
+      if (expedienteResult.error && expedienteResult.error.code === 'RESOURCE_NOT_FOUND') {
+        return res.status(404).json({
+          success: false,
+          error: 'VEHICLE_NOT_FOUND',
+          message: `No se encontró expediente para vehicle_id: ${vehicleId}`,
+          details: expedienteResult.error
+        });
+      }
+      
+      // Otros errores
+      return res.status(500).json({
+        success: false,
+        error: 'EXPEDIENTE_ERROR',
+        message: 'Error al obtener expediente',
+        details: expedienteResult.error
+      });
+    }
+
+    const expedienteData = expedienteResult.data;
+    console.log(`✅ Expediente obtenido: ${expedienteData.files.length} archivos`);
+
+    // Validar que el expediente tenga archivos
+    if (!expedienteData.files || !Array.isArray(expedienteData.files) || expedienteData.files.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'EMPTY_EXPEDIENTE',
+        message: 'El expediente no contiene archivos'
+      });
+    }
+
+    // Ejecutar análisis usando la lógica existente
+    console.log('→ Iniciando analyzeOwnershipSequence...');
+    const analysis = analyzer.analyzeOwnershipSequence(expedienteData);
+    console.log('✓ analyzeOwnershipSequence completado');
+
+    // Validar que el análisis fue exitoso
+    if (!analysis || analysis.success === false) {
+      return res.status(422).json({
+        success: false,
+        error: 'ANALYSIS_ERROR',
+        message: analysis?.error || 'Error en el análisis de secuencia',
+        details: analysis
+      });
+    }
+
+    // Agregar vehicle_id al resultado para referencia
+    analysis.vehicle_id = vehicleId;
+
+    console.log('╔════════════════════════════════════════╗');
+    console.log('║  POST /api/analyze-vehicle SUCCESS    ║');
+    console.log('╚════════════════════════════════════════╝');
+
+    // Retornar el JSON completo del análisis (idéntico al que se muestra en el toggle)
+    res.json(analysis);
+
+  } catch (error) {
+    console.error('╔════════════════════════════════════════╗');
+    console.error('║  POST /api/analyze-vehicle ERROR      ║');
+    console.error('╚════════════════════════════════════════╝');
+    console.error('❌ Error tipo:', error.name);
+    console.error('❌ Error mensaje:', error.message);
+    console.error('❌ Error stack completo:');
+    console.error(error.stack);
+
+    res.status(500).json({
+      success: false,
+      error: 'ANALYSIS_ERROR',
+      message: error.message,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+});
+
+/**
  * DELETE /api/clear
  * Limpia tanto expediente como documento cargados
  */
